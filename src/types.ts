@@ -31,7 +31,16 @@ export type AnnualGoal = {
   unit: string
 }
 
-export type ShoppingItem = { id: string; name: string; done: boolean; amount?: number; quantity?: string }
+export type ShoppingItem = {
+  id: string
+  name: string
+  done: boolean
+  description?: string
+  amount?: number
+  quantity?: string
+  imageUrl?: string
+  purchaseLinks?: string[]
+}
 export type ShoppingList = { id: string; title: string; store: string; items: ShoppingItem[] }
 
 export type Budget = {
