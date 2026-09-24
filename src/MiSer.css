@@ -152,3 +152,46 @@ html[data-theme="dark"] .month-event-payment{background:#443524;color:#f3d29a}
 html[data-theme="dark"] .month-more{color:#aeb7c7}
 @media(max-width:700px){.month-day-events{display:none}.month-day-dots{display:flex}.month-calendar-grid .month-day{height:62px}}
 @media(max-width:580px){.calendar-week-toolbar{flex-wrap:wrap;gap:8px}.calendar-toolbar-actions{width:100%;justify-content:space-between}.month-calendar-grid .month-day{height:52px;padding:6px}.month-day-number{font-size:11px}.calendar-view-toggle button{padding:7px 11px}}
+
+.activity-item{display:flex;align-items:center;gap:14px}
+.activity-item .transaction-row{flex:1;min-width:0;width:auto}
+.activity-item .row-more{display:none}
+.activity-item .delete-mini{position:static;transform:none;flex:none;width:32px;height:32px;display:grid;place-items:center;border-radius:10px}
+.activity-item .delete-mini:hover{background:#fff0f2;color:#d45168}
+html[data-theme="dark"] .activity-item .delete-mini:hover{background:#442831;color:#ffbec9}
+
+.auth-password-field{position:relative}
+.auth-password-field input{padding-right:44px}
+.auth-password-field button{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:#838a9a;display:grid;place-items:center}
+.auth-password-field button:hover{background:#eeeafd;color:#6d5bd4}
+.auth-password-field button:focus-visible,.auth-forgot:focus-visible,.auth-switch button:focus-visible{outline:2px solid #7665e8;outline-offset:2px}
+.auth-field-help{font-size:10px;line-height:1.5;color:#838a9a;margin-top:-7px}
+.auth-forgot{justify-self:end;border:0;background:transparent;color:#6d5bd4;font-size:11px;font-weight:700;padding:2px 0;margin-top:-5px}
+.auth-forgot:hover,.auth-switch button:hover{text-decoration:underline}
+.inline-message-success{background:#eaf8ef;color:#236443}
+.load-error-screen{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--cream)}
+.load-error-card{width:min(100%,440px);padding:32px;border:1px solid var(--line);border-radius:24px;background:#fff;box-shadow:0 12px 40px #1e293b0c;text-align:center}
+.load-error-card .brand-mark{margin:0 auto 20px}.load-error-card h1{font:700 24px Outfit,sans-serif;margin:0 0 10px}.load-error-card p{font-size:12px;line-height:1.6;color:#687385;margin:0 0 24px}
+.load-error-actions{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+html[data-theme="dark"] .auth-screen,html[data-theme="dark"] .auth-form-wrap,html[data-theme="dark"] .load-error-screen,html[data-theme="dark"] .loading-screen{background:#10131b;color:#e6e8ef}
+html[data-theme="dark"] .auth-form h2,html[data-theme="dark"] .mobile-brand,html[data-theme="dark"] .load-error-card h1{color:#e6e8ef}
+html[data-theme="dark"] .auth-password-field button{color:#aeb7c7}
+html[data-theme="dark"] .auth-password-field button:hover{background:#342e4e;color:#ddd2ff}
+html[data-theme="dark"] .auth-field-help,html[data-theme="dark"] .auth-switch,html[data-theme="dark"] .auth-privacy,html[data-theme="dark"] .load-error-card p{color:#aeb7c7}
+html[data-theme="dark"] .auth-forgot,html[data-theme="dark"] .auth-switch button{color:#bbabff}
+html[data-theme="dark"] .inline-message{background:#3c2932;color:#ffc3ce}
+html[data-theme="dark"] .inline-message-success{background:#203b30;color:#b1edca}
+html[data-theme="dark"] .load-error-card{background:#191d28;border-color:#353c4b}
+
+.auth-preview-note{display:flex;align-items:flex-start;gap:9px;padding:12px 13px;margin:0 0 18px;border:1px solid #e6d9b5;border-radius:12px;background:#fff6df;color:#775c28;font-size:11px;line-height:1.5}
+.auth-preview-note svg{flex:none;margin-top:1px;color:#aa8040}
+.auth-demo-button{margin-top:10px}
+.auth-form input:disabled{opacity:.65;cursor:not-allowed}
+.auth-form .btn-primary:disabled{opacity:.7;cursor:not-allowed;transform:none}
+.demo-exit{margin-left:auto;border:0;border-radius:9px;padding:7px 8px;background:#f0edff;color:#6758bf;display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:800;white-space:nowrap}
+.demo-exit:hover{background:#e4ddff}
+.demo-exit:focus-visible{outline:2px solid #7665e8;outline-offset:2px}
+html[data-theme="dark"] .auth-preview-note{background:#302a20;border-color:#5b4b30;color:#efd9a9}
+html[data-theme="dark"] .auth-preview-note svg{color:#e6be78}
+html[data-theme="dark"] .demo-exit{background:#302a47;color:#d5c8ff}
+html[data-theme="dark"] .demo-exit:hover{background:#40365e}

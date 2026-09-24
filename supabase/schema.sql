@@ -24,4 +24,5 @@ create policy "Users can update their own finance data"
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+revoke all on public.finance_data from public, anon, authenticated;
 grant select, insert, update on public.finance_data to authenticated;

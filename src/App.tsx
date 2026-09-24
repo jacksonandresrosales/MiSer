@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import {
   ArrowDownLeft, ArrowLeft, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check,
   CheckCircle2, ChevronDown, CircleHelp, CreditCard, Download, Ellipsis, Heart,
-  ExternalLink, ImagePlus, LayoutDashboard, Link2, ListChecks, LogOut, Menu, Pencil,
+  ExternalLink, Eye, EyeOff, ImagePlus, LayoutDashboard, Link2, ListChecks, LogOut, Menu, Pencil,
   Moon, Plus, Quote, RefreshCw, Search, Settings, ShoppingBag, Sparkles, Sun, Target, TrendingUp,
   Wallet, X,
 } from 'lucide-react'
-import { supabase, supabaseConfigured } from './supabase'
+import { supabase, supabaseConfigured, supabaseMisconfigured } from './supabase'
 import { demoData } from './demoData'
 import { philosophyQuotes } from './quotes'
 import type { AnnualGoal, Budget, CalendarEvent, FinanceData, ShoppingItem, ShoppingList, Transaction } from './types'
@@ -110,39 +110,107 @@ const navItems: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'shopping', label: 'Listas de compras', icon: ShoppingBag },
 ]
 
-function AuthScreen() {
-  const [register, setRegister] = useState(false)
+type AuthMode = 'login' | 'register' | 'recover' | 'reset'
+
+function AuthScreen({ resetPassword = false, onPasswordUpdated, preview = false, onOpenDemo }: { resetPassword?: boolean; onPasswordUpdated?: () => void; preview?: boolean; onOpenDemo?: () => void }) {
+  const [mode, setMode] = useState<AuthMode>(resetPassword ? 'reset' : 'login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  useEffect(() => { if (resetPassword) setMode('reset') }, [resetPassword])
+
+  const switchMode = (next: AuthMode) => {
+    setMode(next)
+    setMessage(null)
+    setPassword('')
+    setConfirmPassword('')
+    setShowPassword(false)
+  }
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!supabase) return
-    setBusy(true); setMessage('')
-    const result = register
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password })
-    setBusy(false)
-    if (result.error) setMessage(result.error.message)
-    else if (register && !result.data.session) setMessage('Revisa tu correo para confirmar la cuenta y luego inicia sesión.')
+    if (!supabase || busy) return
+    if ((mode === 'register' || mode === 'reset') && password.length < 12) {
+      setMessage({ kind: 'error', text: 'La contraseña debe tener al menos 12 caracteres.' })
+      return
+    }
+    if ((mode === 'register' || mode === 'reset') && password !== confirmPassword) {
+      setMessage({ kind: 'error', text: 'Las contraseñas no coinciden.' })
+      return
+    }
+    setBusy(true)
+    setMessage(null)
+    try {
+      if (mode === 'recover') {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin })
+        if (error) throw error
+        setMessage({ kind: 'success', text: 'Si existe una cuenta con ese correo, recibirás un enlace para cambiar la contraseña.' })
+      } else if (mode === 'reset') {
+        const { error } = await supabase.auth.updateUser({ password })
+        if (error) throw error
+        const { error: signOutError } = await supabase.auth.signOut()
+        if (signOutError) throw signOutError
+        onPasswordUpdated?.()
+        switchMode('login')
+        setMessage({ kind: 'success', text: 'Contraseña actualizada. Inicia sesión con tu nueva contraseña.' })
+      } else if (mode === 'register') {
+        const { error } = await supabase.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: window.location.origin } })
+        if (error) throw error
+        setPassword('')
+        setConfirmPassword('')
+        setMessage({ kind: 'success', text: 'Revisa tu correo para confirmar tu cuenta. Si ya existe, inicia sesión.' })
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+        if (error) throw error
+        setPassword('')
+      }
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+      const status = error && typeof error === 'object' && 'status' in error ? Number(error.status) : 0
+      const text = status === 429 || code.includes('rate_limit')
+        ? 'Demasiados intentos. Espera un momento antes de volver a probar.'
+        : code === 'weak_password' ? 'Elige una contraseña más segura.'
+          : mode === 'login' ? 'No se pudo iniciar sesión. Revisa el correo y la contraseña.'
+            : 'No se pudo completar la solicitud. Revisa tu conexión e inténtalo otra vez.'
+      setMessage({ kind: 'error', text })
+    } finally {
+      setBusy(false)
+    }
   }
+  const title = mode === 'register' ? 'Crea tu cuenta' : mode === 'recover' ? 'Recupera tu acceso' : mode === 'reset' ? 'Nueva contraseña' : 'Qué bueno verte'
+  const subtitle = mode === 'register' ? 'Un espacio privado para cuidar tu dinero y tus planes.' : mode === 'recover' ? 'Te enviaremos un enlace para cambiar tu contraseña.' : mode === 'reset' ? 'Elige una contraseña nueva para proteger tu espacio.' : 'Inicia sesión para ver tu mundo financiero.'
   return <main className="auth-screen">
     <div className="auth-art"><div className="auth-art-brand"><BrandMark /> <span>MiSer</span></div><div className="auth-quote"><span className="eyebrow light">TUS FINANZAS, CON CALMA</span><h1>Un poquito<br />más claro,<br /><em>cada día.</em></h1><p>Un espacio para cuidar tu dinero y tus planes.</p><div className="art-orbit orbit-one" /><div className="art-orbit orbit-two" /><div className="art-flower">✳</div></div><span className="auth-art-footer">Tu espacio personal · USD</span></div>
-    <div className="auth-form-wrap"><div className="auth-form"><div className="mobile-brand"><BrandMark /> MiSer</div><span className="eyebrow">BIENVENIDA A TU ESPACIO</span><h2>{register ? 'Crea tu cuenta' : 'Qué bueno verte'}</h2><p className="muted">{register ? 'Empieza a ordenar tus ideas y tu dinero.' : 'Inicia sesión para ver tu mundo financiero.'}</p><form onSubmit={submit} className="stack-form"><label>Correo electrónico<input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@correo.com" /></label><label>Contraseña<input type="password" autoComplete={register ? 'new-password' : 'current-password'} required minLength={6} value={password} onChange={e => setPassword(e.target.value)} placeholder="Al menos 6 caracteres" /></label>{message && <div className="inline-message">{message}</div>}<button className="btn btn-primary full" disabled={busy}>{busy ? 'Un momento…' : register ? 'Crear cuenta' : 'Iniciar sesión'} <ArrowRight size={16} /></button></form><p className="auth-switch">{register ? '¿Ya tienes cuenta?' : '¿Es tu primera vez?'} <button onClick={() => { setRegister(!register); setMessage('') }}>{register ? 'Inicia sesión' : 'Crea una cuenta'}</button></p><div className="auth-privacy"><Heart size={15} /> Tu información es privada y solo tú puedes verla.</div></div></div>
+    <div className="auth-form-wrap"><div className="auth-form"><div className="mobile-brand"><BrandMark /> MiSer</div><span className="eyebrow">TU ESPACIO PERSONAL</span><h2>{title}</h2><p className="muted">{subtitle}</p>{preview && <div className="auth-preview-note" role="status"><Sparkles size={16} /><span>Vista previa del acceso. Conecta Supabase para crear una cuenta e iniciar sesión.</span></div>}<form onSubmit={submit} className="stack-form">
+      {mode !== 'reset' && <label>Correo electrónico<input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@correo.com" disabled={busy || preview} /></label>}
+      {mode !== 'recover' && <label>Contraseña<div className="auth-password-field"><input type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={mode === 'login' ? undefined : 12} value={password} onChange={e => setPassword(e.target.value)} placeholder={mode === 'login' ? 'Tu contraseña' : 'Al menos 12 caracteres'} disabled={busy || preview} /><button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} disabled={busy || preview}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label>}
+      {(mode === 'register' || mode === 'reset') && <><label>Confirmar contraseña<input type={showPassword ? 'text' : 'password'} autoComplete="new-password" required minLength={12} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repite la contraseña" disabled={busy || preview} /></label><small className="auth-field-help">Usa al menos 12 caracteres. Puedes combinar palabras para recordarla.</small></>}
+      {mode === 'login' && <button className="auth-forgot" type="button" onClick={() => switchMode('recover')}>¿Olvidaste tu contraseña?</button>}
+      {message && <div className={`inline-message ${message.kind === 'success' ? 'inline-message-success' : ''}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</div>}
+      <button className="btn btn-primary full" disabled={busy || preview}>{busy ? 'Un momento…' : mode === 'register' ? 'Crear cuenta' : mode === 'recover' ? 'Enviar enlace' : mode === 'reset' ? 'Actualizar contraseña' : 'Iniciar sesión'} <ArrowRight size={16} /></button>
+    </form>{preview && <button className="btn btn-soft full auth-demo-button" type="button" onClick={onOpenDemo}>Explorar demostración <ArrowRight size={16} /></button>}{mode !== 'reset' && <p className="auth-switch">{mode === 'register' ? '¿Ya tienes cuenta?' : mode === 'recover' ? '¿Recordaste tu contraseña?' : '¿Es tu primera vez?'} <button type="button" disabled={busy} onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Crea una cuenta' : 'Inicia sesión'}</button></p>}<div className="auth-privacy"><Heart size={15} /> {preview ? 'La demostración guarda los cambios solo en este navegador.' : 'Acceso protegido para tus datos personales.'}</div></div></div>
   </main>
 }
 
 function App() {
   const [page, setPage] = useState<Page>('overview')
+  const [demoEntryOpen, setDemoEntryOpen] = useState(!supabaseConfigured && !supabaseMisconfigured)
   const [darkMode, setDarkMode] = useState(() => {
     try { return localStorage.getItem('miser-theme') === 'dark' } catch { return false }
   })
-  const [data, setData] = useState<FinanceData | null>(supabaseConfigured ? null : (() => {
+  const [data, setData] = useState<FinanceData | null>(supabaseConfigured || supabaseMisconfigured ? null : (() => {
     try { const stored = localStorage.getItem(demoStorageKey) ?? localStorage.getItem(previousDemoStorageKey); return stored ? JSON.parse(stored) as FinanceData : demoData } catch { return demoData }
   })())
   const [session, setSession] = useState<Session>(null)
-  const [loaded, setLoaded] = useState(!supabaseConfigured)
+  const [authReady, setAuthReady] = useState(!supabaseConfigured)
+  const [recoveryMode, setRecoveryMode] = useState(false)
+  const [loaded, setLoaded] = useState(!supabaseConfigured && !supabaseMisconfigured)
+  const [loadedUserId, setLoadedUserId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [modal, setModal] = useState<Modal>(null)
   const [toast, setToast] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -151,27 +219,43 @@ function App() {
 
   useEffect(() => {
     if (!supabase) return
-    supabase.auth.getSession().then(({ data: result }) => setSession(result.session as Session))
-    const { data: auth } = supabase.auth.onAuthStateChange((_event, next) => {
+    let active = true
+    supabase.auth.getSession().then(({ data: result }) => {
+      if (!active) return
+      setSession(result.session as Session)
+      setAuthReady(true)
+    }).catch(() => { if (active) setAuthReady(true) })
+    const { data: auth } = supabase.auth.onAuthStateChange((event, next) => {
+      if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true)
       setSession(next as Session)
-      if (!next) { setData(null); setLoaded(false) }
+      setAuthReady(true)
+      if (!next) { setRecoveryMode(false); setData(null); setLoaded(false); setLoadedUserId(null) }
     })
-    return () => auth.subscription.unsubscribe()
+    return () => { active = false; auth.subscription.unsubscribe() }
   }, [])
 
   useEffect(() => {
     const client = supabase
     if (!client || !userId) return
     let active = true
+    setLoaded(false)
+    setLoadedUserId(null)
+    setLoadError('')
     client.from('finance_data').select('data').eq('user_id', userId).maybeSingle().then(({ data: result, error }) => {
       if (!active) return
-      if (error) showToast('No se pudo cargar tu información. Revisa la configuración de Supabase.')
+      if (error) {
+        setLoadError('No se pudo cargar tu información. Revisa tu conexión y la configuración de Supabase.')
+        return
+      }
       const saved = result?.data as FinanceData | undefined
       setData(saved ? { ...blankData, ...saved } : blankData)
+      setLoadedUserId(userId)
       setLoaded(true)
+    }, () => {
+      if (active) setLoadError('No se pudo cargar tu información. Revisa tu conexión e inténtalo otra vez.')
     })
     return () => { active = false }
-  }, [userId])
+  }, [userId, loadAttempt])
 
   useEffect(() => {
     if (!data || !loaded) return
@@ -181,13 +265,13 @@ function App() {
       return
     }
     const client = supabase
-    if (!client || !userId) return
+    if (!client || !userId || loadedUserId !== userId) return
     const timer = window.setTimeout(async () => {
       const { error } = await client.from('finance_data').upsert({ user_id: userId, data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
       if (error) showToast('No se pudo sincronizar. Vuelve a intentarlo cuando tengas conexión.')
     }, 450)
     return () => window.clearTimeout(timer)
-  }, [data, loaded, userId])
+  }, [data, loaded, userId, loadedUserId])
 
   useEffect(() => {
     if (!toast) return
@@ -211,7 +295,12 @@ function App() {
   const remaining = monthBudget.totalLimit - expenses
 
   const modify = (fn: (old: FinanceData) => FinanceData) => setData(old => old ? fn(old) : old)
-  const signOut = async () => { await supabase?.auth.signOut(); setPage('overview') }
+  const signOut = async () => {
+    const { error } = await supabase!.auth.signOut()
+    if (error) showToast('No se pudo cerrar sesión. Revisa tu conexión e inténtalo de nuevo.')
+    else setPage('overview')
+  }
+  const leaveDemo = () => { setDemoEntryOpen(true); setPage('overview'); setMenuOpen(false); setModal(null) }
   const saveTransaction = (item: Transaction) => modify(old => ({ ...old, transactions: [item, ...old.transactions.filter(t => t.id !== item.id)] }))
   const saveEvent = (item: CalendarEvent) => modify(old => ({ ...old, events: [...old.events.filter(e => e.id !== item.id), item].sort((a, b) => a.date.localeCompare(b.date)) }))
   const saveGoal = (item: AnnualGoal) => modify(old => ({ ...old, goals: [...old.goals.filter(g => g.id !== item.id), item] }))
@@ -223,8 +312,13 @@ function App() {
   const deleteGoal = (key: string) => modify(old => ({ ...old, goals: old.goals.filter(g => g.id !== key) }))
   const deleteList = (key: string) => modify(old => ({ ...old, lists: old.lists.filter(l => l.id !== key) }))
 
+  if (supabaseMisconfigured) return <main className="load-error-screen"><div className="load-error-card"><BrandMark /><h1>Falta conectar Supabase</h1><p>Configura la URL y la clave pública del proyecto para activar el acceso privado.</p><a className="btn btn-primary" href="https://github.com/jacksonandresrosales/MiSer/blob/main/SUPABASE_SETUP.md" target="_blank" rel="noopener noreferrer">Ver instrucciones</a></div></main>
+  if (supabaseConfigured && !authReady) return <div className="loading-screen"><BrandMark /><span>Preparando tu espacio…</span></div>
+  if (supabaseConfigured && recoveryMode && session) return <AuthScreen resetPassword onPasswordUpdated={() => setRecoveryMode(false)} />
   if (supabaseConfigured && !session) return <AuthScreen />
-  if (!data || !loaded) return <div className="loading-screen"><BrandMark /><span>Cargando tu espacio…</span></div>
+  if (demoEntryOpen) return <AuthScreen preview onOpenDemo={() => setDemoEntryOpen(false)} />
+  if (supabaseConfigured && loadError) return <main className="load-error-screen"><div className="load-error-card"><BrandMark /><h1>No pudimos abrir tu espacio</h1><p>{loadError} Tus datos no se han reemplazado.</p><div className="load-error-actions"><button className="btn btn-primary" onClick={() => setLoadAttempt(value => value + 1)}>Intentar de nuevo</button><button className="btn btn-soft" onClick={signOut}>Cerrar sesión</button></div></div></main>
+  if (!data || !loaded || (supabaseConfigured && loadedUserId !== userId)) return <div className="loading-screen"><BrandMark /><span>Cargando tu espacio…</span></div>
 
   const title = navItems.find(item => item.id === page)?.label ?? 'Ajustes'
   const isDemo = !supabaseConfigured
@@ -233,18 +327,18 @@ function App() {
       <div className="sidebar-brand"><BrandMark /><span>MiSer</span><button className="icon-button close-menu" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú"><X size={18} /></button></div>
       <div className="sidebar-label">ESPACIO PERSONAL</div>
       <nav className="main-nav">{navItems.map(item => { const Icon = item.id === 'activity' ? Wallet : item.id === 'shopping' ? ListChecks : item.icon; return <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => { setPage(item.id); setMenuOpen(false) }}><Icon size={18} strokeWidth={1.8} /><span>{item.id === 'activity' ? 'Finanzas' : item.id === 'goals' ? 'Objetivos' : item.id === 'shopping' ? 'Compras' : item.label}</span>{item.id === 'shopping' && <span className="nav-count">{data.lists.length}</span>}</button>})}</nav>
-      <div className="sidebar-bottom"><div className="sidebar-note"><div className="note-icon"><Sparkles size={16} /></div><strong>Pequeños pasos.</strong><span>Grandes cambios para tu día a día.</span><button onClick={() => setPage('goals')}>Ver mis objetivos <ArrowRight size={13} /></button></div><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}><Settings size={18} strokeWidth={1.8} /><span>Ajustes</span></button><div className="profile"><span className="avatar">{isDemo ? 'M' : (session?.user.email?.[0] ?? 'T').toUpperCase()}</span><span className="profile-name">{isDemo ? 'Mi espacio' : session?.user.email}</span>{isDemo ? <span className="demo-dot" title="Modo de demostración" /> : <button className="icon-button" onClick={signOut} aria-label="Cerrar sesión"><LogOut size={16} /></button>}</div></div>
+      <div className="sidebar-bottom"><div className="sidebar-note"><div className="note-icon"><Sparkles size={16} /></div><strong>Pequeños pasos.</strong><span>Grandes cambios para tu día a día.</span><button onClick={() => setPage('goals')}>Ver mis objetivos <ArrowRight size={13} /></button></div><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}><Settings size={18} strokeWidth={1.8} /><span>Ajustes</span></button><div className="profile"><span className="avatar">{isDemo ? 'M' : (session?.user.email?.[0] ?? 'T').toUpperCase()}</span><span className="profile-name">{isDemo ? 'Mi espacio' : session?.user.email}</span>{isDemo ? <button className="demo-exit" onClick={leaveDemo}><LogOut size={14} /> Salir</button> : <button className="icon-button" onClick={signOut} aria-label="Cerrar sesión"><LogOut size={16} /></button>}</div></div>
     </aside>
     {menuOpen && <button className="sidebar-scrim" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />}
     <main className="main-content">
       <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Abrir menú"><Menu size={20} /></button><div className="breadcrumb"><span>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }).format(today)}</span><strong>{page === 'overview' ? 'Hola, qué bueno verte ✦' : title}</strong></div><div className="topbar-actions"><button className="icon-button notification-button" onClick={() => { setPage('calendar'); showToast('Aquí verás tus eventos y próximos pagos.') }} aria-label="Ver recordatorios"><Bell size={18} /><i /></button><button className="icon-button theme-quick-toggle" type="button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'} title={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button><span className="top-avatar">{isDemo ? 'M' : (session?.user.email?.[0] ?? 'T').toUpperCase()}</span><span className="profile-name top-profile-name">{isDemo ? 'Mi espacio' : session?.user.email}</span></div></header>
-      {isDemo && <div className="demo-banner"><span><Sparkles size={14} /> Estás explorando el modo de demostración. Tus cambios se guardan solo en este navegador.</span><button onClick={() => setPage('settings')}>Configurar sincronización <ArrowRight size={13} /></button></div>}
+      {isDemo && <div className="demo-banner"><span><Sparkles size={14} /> Estás explorando el modo de demostración. Tus cambios se guardan solo en este navegador.</span><button onClick={leaveDemo}>Ver acceso <ArrowRight size={13} /></button></div>}
       {page === 'overview' && <Overview data={data} income={income} expenses={expenses} remaining={remaining} budget={monthBudget} currentMonth={currentMonth} onAdd={() => setModal({ kind: 'transaction' })} onAddEvent={() => setModal({ kind: 'event', date: isoDate(today) })} onEditTransaction={item => setModal({ kind: 'transaction', item })} onNavigate={setPage} />}
       {page === 'activity' && <Activity data={data} query={search} setQuery={setSearch} onAdd={() => setModal({ kind: 'transaction' })} onEdit={item => setModal({ kind: 'transaction', item })} onDelete={deleteTransaction} />}
       {page === 'calendar' && <CalendarPage data={data} onAdd={date => setModal({ kind: 'event', date })} onEdit={item => setModal({ kind: 'event', item })} onDelete={deleteEvent} onNotice={showToast} />}
       {page === 'goals' && <GoalsPage data={data} onAdd={() => setModal({ kind: 'goal' })} onEdit={item => setModal({ kind: 'goal', item })} onDelete={deleteGoal} />}
       {page === 'shopping' && <ShoppingPage data={data} modify={modify} onAdd={() => setModal({ kind: 'list' })} onEdit={item => setModal({ kind: 'list', item })} onDelete={deleteList} onAddItem={listId => setModal({ kind: 'shoppingItem', listId })} onEditItem={(listId, item) => setModal({ kind: 'shoppingItem', listId, item })} />}
-      {page === 'settings' && <SettingsPage isDemo={isDemo} email={session?.user.email ?? ''} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => setModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} />}
+      {page === 'settings' && <SettingsPage isDemo={isDemo} email={session?.user.email ?? ''} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => setModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} onExitDemo={leaveDemo} />}
     </main>
     {modal && <EditModal modal={modal} month={currentMonth} onClose={() => setModal(null)} onSaveTransaction={saveTransaction} onSaveEvent={saveEvent} onSaveGoal={saveGoal} onSaveList={saveList} onSaveShoppingItem={saveShoppingItem} onSaveBudget={saveBudget} />}
     {toast && <div className="toast"><CheckCircle2 size={17} />{toast}</div>}
@@ -422,8 +516,8 @@ function ShoppingPage({ data, modify, onAdd, onEdit, onDelete, onAddItem, onEdit
       </article>
     })}<button className="new-list-card" onClick={onAdd}><span><Plus size={20} /></span><strong>Crear otra lista</strong><small>Por tienda, ocasión o como prefieras</small></button></div> : <div className="panel"><EmptyState icon={<ListChecks size={21} />} title="Tus listas empiezan aquí" text="Crea una lista para la semana, una tienda o un proyecto." /><button className="btn btn-primary" onClick={onAdd}><Plus size={16} /> Crear lista</button></div>}
   </div>
-}function SettingsPage({ isDemo, email, darkMode, onDarkModeChange, onBudget, onLogout }: { isDemo: boolean; email: string; darkMode: boolean; onDarkModeChange: (enabled: boolean) => void; onBudget: () => void; onLogout: () => void }) {
-  return <div className="page-wrap"><PageHeading eyebrow="TU ESPACIO, TUS PREFERENCIAS" title="Ajustes" subtitle="Administra tu presupuesto y la forma en que guardas tus datos." /><div className="settings-layout"><section className="panel settings-panel"><div className="settings-section"><div className="settings-section-icon">{darkMode ? <Moon size={18} /> : <Sun size={18} />}</div><div className="settings-copy"><h2>Modo oscuro</h2><p>Reduce el brillo de MiSer. Esta preferencia se guarda en este navegador.</p></div><button className={`theme-toggle ${darkMode ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={darkMode} aria-label="Activar modo oscuro" onClick={() => onDarkModeChange(!darkMode)}><span /></button><span className="setting-value theme-value">{darkMode ? 'Activado' : 'Desactivado'}</span></div><div className="settings-section"><div className="settings-section-icon"><Wallet size={18} /></div><div className="settings-copy"><h2>Presupuesto mensual</h2><p>Configura tu límite general y los límites de cada categoría.</p></div><button className="btn btn-soft" onClick={onBudget}>Editar presupuesto</button></div><div className="settings-section"><div className="settings-section-icon"><Heart size={18} /></div><div className="settings-copy"><h2>Moneda principal</h2><p>Todos los importes se registran en dólares estadounidenses.</p></div><span className="setting-value">USD · $</span></div><div className="settings-section"><div className="settings-section-icon"><Download size={18} /></div><div className="settings-copy"><h2>Privacidad y almacenamiento</h2><p>{isDemo ? 'Modo demostración: los cambios se guardan solo en este navegador.' : `Sincronización en la nube activa para ${email}.`}</p></div><span className={`connection-badge ${isDemo ? 'connection-demo' : ''}`}><i />{isDemo ? 'Solo local' : 'Sincronizado'}</span></div>{!isDemo && <div className="settings-section"><div className="settings-section-icon"><LogOut size={18} /></div><div className="settings-copy"><h2>Sesión</h2><p>Cierra sesión en este dispositivo.</p></div><button className="btn btn-soft" onClick={onLogout}>Cerrar sesión</button></div>}</section><aside className="setup-card"><div className="setup-icon"><CircleHelp size={18} /></div><span className="eyebrow">TU INFORMACIÓN</span><h2>{isDemo ? '¿Quieres sincronizar?' : 'Todo en su lugar.'}</h2><p>{isDemo ? 'Conecta un proyecto de Supabase para habilitar cuentas privadas y ver tus datos en otros dispositivos. Sigue los pasos de la guía de configuración.' : 'Tu información se guarda en tu cuenta privada. Solo tú tienes acceso.'}</p><span className="setup-foot"><CheckCircle2 size={15} /> {isDemo ? 'Tus datos de muestra se quedan aquí' : 'Acceso protegido por tu cuenta'}</span></aside></div><div className="settings-tip"><Sparkles size={16} /><span><strong>Un consejo:</strong> reserva un momento al final de cada semana para revisar tus movimientos y actualizar tus objetivos.</span></div></div>
+}function SettingsPage({ isDemo, email, darkMode, onDarkModeChange, onBudget, onLogout, onExitDemo }: { isDemo: boolean; email: string; darkMode: boolean; onDarkModeChange: (enabled: boolean) => void; onBudget: () => void; onLogout: () => void; onExitDemo: () => void }) {
+  return <div className="page-wrap"><PageHeading eyebrow="TU ESPACIO, TUS PREFERENCIAS" title="Ajustes" subtitle="Administra tu presupuesto y la forma en que guardas tus datos." /><div className="settings-layout"><section className="panel settings-panel"><div className="settings-section"><div className="settings-section-icon">{darkMode ? <Moon size={18} /> : <Sun size={18} />}</div><div className="settings-copy"><h2>Modo oscuro</h2><p>Reduce el brillo de MiSer. Esta preferencia se guarda en este navegador.</p></div><button className={`theme-toggle ${darkMode ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={darkMode} aria-label="Activar modo oscuro" onClick={() => onDarkModeChange(!darkMode)}><span /></button><span className="setting-value theme-value">{darkMode ? 'Activado' : 'Desactivado'}</span></div><div className="settings-section"><div className="settings-section-icon"><Wallet size={18} /></div><div className="settings-copy"><h2>Presupuesto mensual</h2><p>Configura tu límite general y los límites de cada categoría.</p></div><button className="btn btn-soft" onClick={onBudget}>Editar presupuesto</button></div><div className="settings-section"><div className="settings-section-icon"><Heart size={18} /></div><div className="settings-copy"><h2>Moneda principal</h2><p>Todos los importes se registran en dólares estadounidenses.</p></div><span className="setting-value">USD · $</span></div><div className="settings-section"><div className="settings-section-icon"><Download size={18} /></div><div className="settings-copy"><h2>Privacidad y almacenamiento</h2><p>{isDemo ? 'Modo demostración: los cambios se guardan solo en este navegador.' : `Sincronización en la nube activa para ${email}.`}</p></div><span className={`connection-badge ${isDemo ? 'connection-demo' : ''}`}><i />{isDemo ? 'Solo local' : 'Sincronizado'}</span></div><div className="settings-section"><div className="settings-section-icon"><LogOut size={18} /></div><div className="settings-copy"><h2>{isDemo ? 'Demostración' : 'Sesión'}</h2><p>{isDemo ? 'Vuelve a la vista previa del acceso.' : 'Cierra sesión en este dispositivo.'}</p></div><button className="btn btn-soft" onClick={isDemo ? onExitDemo : onLogout}>{isDemo ? 'Salir del demo' : 'Cerrar sesión'}</button></div></section><aside className="setup-card"><div className="setup-icon"><CircleHelp size={18} /></div><span className="eyebrow">TU INFORMACIÓN</span><h2>{isDemo ? '¿Quieres sincronizar?' : 'Todo en su lugar.'}</h2><p>{isDemo ? 'Conecta un proyecto de Supabase para habilitar cuentas privadas y ver tus datos en otros dispositivos. Sigue los pasos de la guía de configuración.' : 'Tu información se guarda en tu cuenta privada. Solo tú tienes acceso.'}</p><span className="setup-foot"><CheckCircle2 size={15} /> {isDemo ? 'Tus datos de muestra se quedan aquí' : 'Acceso protegido por tu cuenta'}</span></aside></div><div className="settings-tip"><Sparkles size={16} /><span><strong>Un consejo:</strong> reserva un momento al final de cada semana para revisar tus movimientos y actualizar tus objetivos.</span></div></div>
 }
 
 function EmptyState({ icon, title, text }: { icon: ReactNode; title: string; text: string }) { return <div className="empty-state"><span>{icon}</span><strong>{title}</strong><p>{text}</p></div> }

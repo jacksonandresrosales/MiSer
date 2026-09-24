@@ -8,8 +8,8 @@ MiSer es una aplicación personal en español para organizar dinero y planes cot
 
 - Web implementada con React 19, TypeScript 6 y Vite 8.
 - Interfaz MiSer adaptable, con navegación entre Resumen, Finanzas, Calendario, Objetivos, Compras y Ajustes.
-- Supabase Auth y almacenamiento privado disponibles cuando se configuran las variables de entorno y se ejecuta `supabase/schema.sql`.
-- Sin Supabase configurado, la aplicación usa datos de demostración y guarda los cambios en `localStorage` (`miser-demo`; también lee la clave anterior `brisa-demo` para conservar datos existentes).
+- Supabase Auth y almacenamiento privado disponibles cuando se configuran las variables de entorno y se ejecuta `supabase/schema.sql`. El acceso incluye registro, confirmación por correo, inicio de sesión y recuperación de contraseña.
+- Sin Supabase configurado, la aplicación muestra una vista previa del acceso con la opción de explorar el demo. Los cambios del demo se guardan en `localStorage` (`miser-demo`; también lee la clave anterior `brisa-demo` para conservar datos existentes). El demo permite volver a esa pantalla desde el perfil, el aviso superior o Ajustes.
 - El resumen consulta una API pública de frases en español al abrirse y al pedir otra frase. Conserva localmente las frases ya vistas para evitar repeticiones en ese navegador; si la API falla, usa la colección local de respaldo. La API puede incluir autores de distintos ámbitos y no siempre entrega la obra original.
 - El tema claro/oscuro se puede cambiar desde Ajustes o con el control rápido junto a recordatorios. La preferencia se guarda en `localStorage` por navegador. Las transiciones de controles y navegación usan una escala común y respetan la preferencia de movimiento reducido del sistema.
 - Configuración base de Capacitor con `appId: com.miser.finanzas` y `appName: MiSer`. Todavía no se entrega un APK.
@@ -41,6 +41,8 @@ MiSer es una aplicación personal en español para organizar dinero y planes cot
 
 En modo demo, los datos son locales al navegador y no se sincronizan entre dispositivos. La interfaz debe indicarlo con claridad. Al modificar datos autenticados, la app sincroniza el documento completo con Supabase tras una breve espera.
 
+Si Supabase falla al leer el documento, la app no muestra datos vacíos ni los guarda sobre la fila existente; ofrece reintentar. Antes de escribir comprueba que el documento cargado pertenece al usuario de la sesión actual. El modo demo no migra automáticamente sus datos a una cuenta.
+
 Las imágenes cargadas desde el dispositivo ocupan espacio dentro de `FinanceData`, tanto en `localStorage` como en Supabase. Los enlaces externos de imagen y compra dependen de que la página de origen siga disponible. Si el navegador se queda sin espacio, la app informa que no pudo guardar los cambios locales.
 
 ## Estructura relevante
@@ -54,7 +56,8 @@ Las imágenes cargadas desde el dispositivo ocupan espacio dentro de `FinanceDat
 | `api/quote.js` | Proxy de la API de frases para despliegues en Vercel, donde el navegador no puede consultar directamente la fuente por CORS. |
 | `src/demoData.ts` | Datos iniciales del modo demo. |
 | `src/supabase.ts` | Configuración del cliente Supabase. |
-| `supabase/schema.sql` | Tabla y políticas RLS. |
+| `supabase/schema.sql` | Tabla, permisos y políticas RLS. |
+| `SUPABASE_SETUP.md` | Pasos para crear Supabase, configurar Auth y conectar Vercel. |
 | `public/favicon.svg` | Ícono vectorial de MiSer usado en la web. |
 | `capacitor.config.ts` | Identidad y carpeta web para Android. |
 
@@ -66,7 +69,7 @@ La marca usa el nombre **MiSer** y un monograma “M” blanco con trazo verde y
 
 1. Usar Node.js 20 o posterior y ejecutar `npm install`.
 2. Ejecutar `npm run dev` para desarrollo o `npm run build` para compilar.
-3. Para activar cuentas privadas, crear un proyecto Supabase, ejecutar `supabase/schema.sql`, copiar `.env.example` a `.env.local` y establecer `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`.
+3. Para activar cuentas privadas, seguir `SUPABASE_SETUP.md`.
 4. Reiniciar el servidor de desarrollo después de cambiar variables de entorno.
 
 ## Criterios para futuras implementaciones
