@@ -21,9 +21,9 @@ export const demoData: FinanceData = {
     { id: 'e4', title: 'Llamada con cliente', date: date(28), kind: 'event', time: '11:00', location: 'Videollamada', category: 'work', remind: true },
   ],
   goals: [
-    { id: 'g1', title: 'Fondo de emergencia', category: 'Ahorro', target: 5000, current: 2750, dueDate: `${today.getFullYear()}-12-31`, unit: 'USD' },
-    { id: 'g2', title: 'Viaje a la playa', category: 'Experiencias', target: 1200, current: 640, dueDate: `${today.getFullYear()}-10-01`, unit: 'USD' },
-    { id: 'g3', title: 'Leer 12 libros', category: 'Personal', target: 12, current: 7, dueDate: `${today.getFullYear()}-12-31`, unit: 'libros' },
+    { id: 'g1', title: 'Mejorar mi físico', completed: false },
+    { id: 'g2', title: 'Leer más libros', completed: false },
+    { id: 'g3', title: 'Ahorrar cada mes', completed: true },
   ],
   lists: [
     { id: 'l1', title: 'Frutas y verduras', store: 'Frescos para la semana', items: [

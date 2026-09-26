@@ -24,11 +24,13 @@ export type CalendarEvent = {
 export type AnnualGoal = {
   id: string
   title: string
-  category: string
-  target: number
-  current: number
-  dueDate: string
-  unit: string
+  completed?: boolean
+  // Legacy fields remain optional so existing saved goals keep their data.
+  category?: string
+  target?: number
+  current?: number
+  dueDate?: string
+  unit?: string
 }
 
 export type ShoppingItem = {
