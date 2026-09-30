@@ -13,6 +13,8 @@ MiSer es una aplicación personal en español para organizar dinero y planes cot
 - El resumen consulta una API pública de frases en español al abrirse y al pedir otra frase. Conserva localmente las frases ya vistas para evitar repeticiones en ese navegador; si la API falla, usa la colección local de respaldo. La API puede incluir autores de distintos ámbitos y no siempre entrega la obra original.
 - El tema claro/oscuro se puede cambiar desde Ajustes o con el control rápido junto a recordatorios. La preferencia se guarda en `localStorage` por navegador. Las transiciones de controles y navegación usan una escala común y respetan la preferencia de movimiento reducido del sistema.
 - Configuración base de Capacitor con `appId: com.miser.finanzas` y `appName: MiSer`. Todavía no se entrega un APK.
+- Primera etapa Kotlin en `kotlin/`: núcleo compatible con los datos actuales e interfaz Compose compartida para Android y web. Incluye resumen, movimientos y objetivos en demostración local. Authentication y Firestore aún pertenecen al cliente React; consultar `kotlin/README.md` para requisitos y comandos.
+- La interfaz Kotlin para teléfono usa controles de cristal translúcido, navegación inferior flotante, transiciones de pantalla y menús por registro. Los movimientos se crean en una hoja inferior con teclado decimal y calendario; las fechas del calendario se interpretan en UTC para evitar desplazamientos por zona horaria.
 
 ## Funciones
 

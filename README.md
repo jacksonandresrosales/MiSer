@@ -92,3 +92,7 @@ MiSer no se conecta a cuentas bancarias y no envía notificaciones automáticas.
 ## Tecnologías
 
 React · TypeScript · Vite · Firebase Authentication · Cloud Firestore · Lucide · Capacitor
+
+## Adaptación a Kotlin
+
+La primera etapa de MiSer para Android y web vive en [`kotlin/`](kotlin/README.md), con Kotlin Multiplatform y Compose Multiplatform. Incluye resumen, movimientos y objetivos con almacenamiento local de demostración. La autenticación y sincronización de Firebase se trasladarán en la siguiente etapa; el cliente React continúa disponible durante la migración.
