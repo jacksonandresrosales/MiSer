@@ -25,3 +25,10 @@ dist-ssr
 
 # Contexto local de Superdesign
 .superdesign/
+
+# Compilación y configuración local de Kotlin/Android
+**/.gradle/
+**/.kotlin/
+kotlin/**/build/
+kotlin/local.properties
+kotlin/.android-sdk/
