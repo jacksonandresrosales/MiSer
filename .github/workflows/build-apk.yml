@@ -17,8 +17,6 @@ jobs:
     name: Build APK
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      MISER_DEBUG_KEYSTORE: ${{ runner.temp }}/miser-debug.keystore
 
     steps:
       - name: Checkout repository
@@ -63,10 +61,12 @@ jobs:
       - name: Restore stable development signing key
         env:
           ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+          MISER_DEBUG_KEYSTORE: ${{ runner.temp }}/miser-debug.keystore
         run: |
           test -n "$ANDROID_DEBUG_KEYSTORE_BASE64" || { echo 'Falta ANDROID_DEBUG_KEYSTORE_BASE64: no se generará una firma temporal.'; exit 1; }
           printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$MISER_DEBUG_KEYSTORE"
           chmod 600 "$MISER_DEBUG_KEYSTORE"
+          echo "MISER_DEBUG_KEYSTORE=$MISER_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
 
       - name: Build Android Debug APK
         working-directory: android
