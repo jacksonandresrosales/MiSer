@@ -17,6 +17,8 @@ jobs:
     name: Build APK
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      MISER_DEBUG_KEYSTORE: ${{ runner.temp }}/miser-debug.keystore
 
     steps:
       - name: Checkout repository
@@ -63,9 +65,8 @@ jobs:
           ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
           test -n "$ANDROID_DEBUG_KEYSTORE_BASE64" || { echo 'Falta ANDROID_DEBUG_KEYSTORE_BASE64: no se generará una firma temporal.'; exit 1; }
-          mkdir -p "$HOME/.android"
-          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$MISER_DEBUG_KEYSTORE"
+          chmod 600 "$MISER_DEBUG_KEYSTORE"
 
       - name: Build Android Debug APK
         working-directory: android
@@ -79,6 +80,9 @@ jobs:
           cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/MiSer.apk
           APK_SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
           "$APK_SIGNER" verify --verbose --print-certs artifacts/MiSer.apk | tee artifacts/certificado.txt
+          keytool -exportcert -keystore "$MISER_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey -file "$RUNNER_TEMP/miser-signing.cer"
+          EXPECTED_CERT_SHA256=$(sha256sum "$RUNNER_TEMP/miser-signing.cer" | cut -d ' ' -f 1)
+          grep -Fi "certificate SHA-256 digest: $EXPECTED_CERT_SHA256" artifacts/certificado.txt
           (cd artifacts && sha256sum MiSer.apk > MiSer.apk.sha256)
           echo 'APK de pruebas con Firebase y firma estable. Google nativo pendiente de configuración Android.' >> "$GITHUB_STEP_SUMMARY"
 
