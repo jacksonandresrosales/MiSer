@@ -1,5 +1,8 @@
 name: Build Android APK
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   push:
@@ -13,6 +16,7 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -32,20 +36,36 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm ci
+
+      - name: Test application
+        run: npm test
 
       - name: Build Web Application
         env:
-          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-        run: npm run build
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN || vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET || vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID || vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID || vars.VITE_FIREBASE_APP_ID }}
+        run: |
+          node --input-type=module -e "const keys = ['API_KEY', 'AUTH_DOMAIN', 'PROJECT_ID', 'STORAGE_BUCKET', 'MESSAGING_SENDER_ID', 'APP_ID'].map(k => 'VITE_FIREBASE_' + k); const missing = keys.filter(k => !process.env[k]?.trim()); if (missing.length) throw new Error('Falta configurar Firebase: ' + missing.join(', '));"
+          npm run build
 
       - name: Sync Capacitor Android
-        run: npx cap sync android
+        run: |
+          npx cap sync android
+          node --input-type=module -e "import fs from 'node:fs'; import assert from 'node:assert/strict'; const plugins = JSON.parse(fs.readFileSync('android/app/src/main/assets/capacitor.plugins.json', 'utf8')); for (const pkg of ['@capacitor/filesystem', '@capacitor/share']) assert.ok(plugins.some(p => p.pkg === pkg), 'Plugin Android no registrado: ' + pkg);"
+
+      - name: Restore stable development signing key
+        env:
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$ANDROID_DEBUG_KEYSTORE_BASE64" || { echo 'Falta ANDROID_DEBUG_KEYSTORE_BASE64: no se generará una firma temporal.'; exit 1; }
+          mkdir -p "$HOME/.android"
+          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
 
       - name: Build Android Debug APK
         working-directory: android
@@ -53,10 +73,19 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
+      - name: Verify and prepare APK
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/MiSer.apk
+          APK_SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          "$APK_SIGNER" verify --verbose --print-certs artifacts/MiSer.apk | tee artifacts/certificado.txt
+          (cd artifacts && sha256sum MiSer.apk > MiSer.apk.sha256)
+          echo 'APK de pruebas con Firebase y firma estable. Google nativo pendiente de configuración Android.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MiSer-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: MiSer-Android
+          path: artifacts/
           if-no-files-found: error
           retention-days: 30
