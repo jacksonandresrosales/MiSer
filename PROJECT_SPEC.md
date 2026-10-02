@@ -12,6 +12,9 @@ MiSer es una aplicación personal en español para organizar dinero y planes cot
 - Sin Firebase configurado, la aplicación muestra una vista previa del acceso con la opción de explorar el demo. Los cambios del demo se guardan en `localStorage` (`miser-demo`; también lee la clave anterior `brisa-demo` para conservar datos existentes). El demo permite volver a esa pantalla desde el perfil, el aviso superior o Ajustes.
 - El resumen consulta una API pública de frases en español al abrirse y al pedir otra frase. Conserva localmente las frases ya vistas para evitar repeticiones en ese navegador; si la API falla, usa la colección local de respaldo. La API puede incluir autores de distintos ámbitos y no siempre entrega la obra original.
 - El tema claro/oscuro se puede cambiar desde Ajustes o con el control rápido junto a recordatorios. La preferencia se guarda en `localStorage` por navegador. Las transiciones de controles y navegación usan una escala común y respetan la preferencia de movimiento reducido del sistema.
+- Ajustes permite editar el nombre visible y subir, reemplazar o quitar la foto de perfil. La cabecera y el menú lateral usan ese perfil, no el correo. La foto de Google se utiliza como valor inicial cuando no hay un perfil personalizado. Las fotos del dispositivo se recortan al centro y se reducen a JPEG de hasta 256 × 256 y 140 000 caracteres; no requieren Cloud Storage.
+- El perfil se guarda en `finance_data/{uid}.profile` con una escritura combinada que conserva los registros y la copia histórica. Utiliza las reglas de acceso existentes; no hace falta abrir nuevas colecciones. En el demo se guarda por separado en `miser-demo-profile`. El nombre no es un identificador único ni cambia el acceso con Google o correo.
+- La pantalla de inicio preferida y la opción de movimiento reducido se guardan por dispositivo en `miser-preferences`. El movimiento reducido del sistema sigue teniendo prioridad aunque la opción de la app esté apagada. Las cuentas de correo/contraseña pueden solicitar un enlace de cambio desde Ajustes; no se modifica la contraseña en la app.
 - Configuración base de Capacitor con `appId: com.miser.finanzas` y `appName: MiSer`. Todavía no se entrega un APK.
 - Primera etapa Kotlin en `kotlin/`: núcleo compatible con los datos actuales e interfaz Compose compartida para Android y web. Incluye resumen, movimientos y objetivos en demostración local. Authentication y Firestore aún pertenecen al cliente React; consultar `kotlin/README.md` para requisitos y comandos.
 - La interfaz Kotlin para teléfono usa controles de cristal translúcido, navegación inferior flotante, transiciones de pantalla y menús por registro. Los movimientos se crean en una hoja inferior con teclado decimal y calendario; las fechas del calendario se interpretan en UTC para evitar desplazamientos por zona horaria.
@@ -59,6 +62,7 @@ Las imágenes cargadas desde el dispositivo ocupan espacio en `localStorage` dur
 | `src/demoData.ts` | Datos iniciales del modo demo. |
 | `src/firebase.ts` | Configuración de Firebase Authentication y Cloud Firestore. |
 | `src/financeData.ts` y `src/financeStore.ts` | Conversión de registros, migración y sincronización con control de versiones. |
+| `src/userProfile.ts` | Validación del perfil, fotos seguras, iniciales y preferencias locales. |
 | `firestore.rules` | Reglas de acceso por usuario. |
 | `.env.example` | Variables públicas necesarias para Firebase. |
 | `public/favicon.svg` | Ícono vectorial de MiSer usado en la web. |

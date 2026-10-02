@@ -23,7 +23,9 @@ MiSer es una aplicación personal para llevar ingresos, gastos y presupuestos, o
 - **Objetivos:** escribir objetivos de año nuevo y marcarlos como cumplidos con una casilla.
 - **Compras:** crear listas, marcar artículos y guardar precios estimados, imágenes y enlaces.
 - **Resumen:** ver los gastos del mes, el presupuesto, próximos eventos y objetivos, y una frase para el día.
-- **Personalización:** usar tema claro u oscuro y exportar una copia JSON de los datos.
+- **Perfil:** elegir un nombre visible y subir, cambiar o quitar tu foto. El correo queda reservado a la sección de cuenta.
+- **Personalización:** usar tema claro u oscuro, elegir la pantalla de inicio, reducir las animaciones y exportar una copia JSON de los datos.
+- **Seguridad:** solicitar un enlace de cambio de contraseña para cuentas de correo/contraseña. Las cuentas de Google administran su contraseña en Google.
 - **Acceso privado:** iniciar sesión con correo y contraseña o con Google mediante Firebase Authentication.
 
 ## Requisitos
