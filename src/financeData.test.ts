@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { changedRecords, flattenData, goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney } from './financeData.ts'
 import type { FinanceData } from './types.ts'
+import { parsePreferences, parseProfile, profileInitials, profilePhotoSrc, validateProfile } from './userProfile.ts'
 
 test('records split shopping images from lists and only changed items are written', () => {
   const initial: FinanceData = { transactions: [], events: [], goals: [], budgets: [], lists: [{ id: 'list', title: 'Compras', store: '', items: [{ id: 'item', name: 'Pan', done: false, imageUrl: 'data:image/jpeg;base64,abc' }] }] }
@@ -24,4 +25,23 @@ test('new goals use a check while legacy goals keep their completed state', () =
   assert.equal(goalCompleted({ id: 'new', title: 'Mejorar mi físico', completed: false }), false)
   assert.equal(goalCompleted({ id: 'old', title: 'Leer', current: 12, target: 12 }), true)
   assert.equal(goalCompleted({ id: 'old', title: 'Leer', current: 12, target: 12, completed: false }), false)
+})
+
+test('profiles validate names and photos; preferences reject unknown values', () => {
+  const profile = { displayName: '  André   Rosales  ', photoURL: 'data:image/jpeg;base64,YWJj' }
+  assert.deepEqual(validateProfile(profile), { ...profile, displayName: 'André Rosales' })
+  assert.equal(profileInitials('André Rosales'), 'AR')
+  assert.equal(profileInitials(''), 'M')
+  assert.equal(parseProfile({ displayName: 'Nombre', photoURL: null }), null)
+  assert.throws(() => validateProfile({ ...profile, displayName: ' ' }))
+  assert.throws(() => validateProfile({ ...profile, displayName: 'a'.repeat(51) }))
+  assert.throws(() => validateProfile({ ...profile, displayName: 'Nombre\u202e' }))
+  for (const photo of ['javascript:alert(1)', 'data:image/svg+xml;base64,YWJj', 'http://example.com/photo.jpg', 'data:image/jpeg;base64,' + 'a'.repeat(140_000)]) {
+    assert.equal(profilePhotoSrc(photo), null)
+    assert.throws(() => validateProfile({ ...profile, photoURL: photo }))
+  }
+  assert.equal(profilePhotoSrc('https://example.com/photo.jpg'), 'https://example.com/photo.jpg')
+  assert.deepEqual(parsePreferences({ startPage: 'goals', reducedMotion: true }), { startPage: 'goals', reducedMotion: true })
+  assert.deepEqual(parsePreferences({ startPage: 'invalid', reducedMotion: 'true' }), { startPage: 'overview', reducedMotion: false })
+  assert.deepEqual(parsePreferences(null), { startPage: 'overview', reducedMotion: false })
 })

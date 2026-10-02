@@ -1,10 +1,11 @@
-import { collection, doc, getDocFromServer, getDocsFromServer, runTransaction, serverTimestamp, writeBatch, type Firestore } from 'firebase/firestore'
+import { collection, doc, getDocFromServer, getDocsFromServer, runTransaction, serverTimestamp, setDoc, writeBatch, type Firestore } from 'firebase/firestore'
 import { changedRecords, flattenData, inflateRecords, type FinanceRecord, type RecordMap } from './financeData'
 import type { FinanceData } from './types'
+import { parseProfile, validateProfile, type UserProfile } from './userProfile'
 
 const recordsPath = (db: Firestore, uid: string) => collection(db, 'finance_data', uid, 'records')
 
-export async function loadFinanceData(db: Firestore, uid: string): Promise<{ data: FinanceData; records: RecordMap; versions: Map<string, number> }> {
+export async function loadFinanceData(db: Firestore, uid: string): Promise<{ data: FinanceData; records: RecordMap; versions: Map<string, number>; profile: UserProfile | null }> {
   const root = doc(db, 'finance_data', uid)
   const [legacy, snapshot] = await Promise.all([getDocFromServer(root), getDocsFromServer(recordsPath(db, uid))])
   if (legacy.data()?.data && legacy.data()?.schemaVersion !== 2) {
@@ -29,7 +30,12 @@ export async function loadFinanceData(db: Firestore, uid: string): Promise<{ dat
     versions.set(entry.id, value.version ?? 0)
     if (!value.deleted) records.set(entry.id, { kind: value.kind, value: value.value })
   }
-  return { data: inflateRecords(records), records, versions }
+  return { data: inflateRecords(records), records, versions, profile: parseProfile(legacy.data()?.profile) }
+}
+
+export async function saveUserProfile(db: Firestore, uid: string, profile: UserProfile): Promise<void> {
+  // Merge only the profile: finance records and the legacy backup stay untouched.
+  await setDoc(doc(db, 'finance_data', uid), { profile: validateProfile(profile) }, { merge: true })
 }
 
 export async function saveFinanceRecord(db: Firestore, uid: string, key: string, record: FinanceRecord | null, expectedVersion: number): Promise<number> {

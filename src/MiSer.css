@@ -249,3 +249,86 @@ html[data-theme="dark"] .overview-next-icon{background:#342d51;color:#c5b5ff}
 html[data-theme="dark"] .overview-next-goal{background:#214035;color:#a3e3bd}
 html[data-theme="dark"] .overview-next-copy small,html[data-theme="dark"] .overview-next-copy>span,html[data-theme="dark"] .overview-next-row>svg{color:#b0bbce}
 @media(max-width:580px){.overview-spend{padding:22px}.overview-spend-head{flex-direction:column;gap:20px}.overview-spend .overview-add{align-self:stretch}.overview-budget{margin-top:25px}.overview-budget>div{font-size:11px}.overview-bottom{grid-template-columns:1fr;gap:12px}.overview-next{padding:16px}}
+
+/* Profile and settings extend the existing MiSer palette and controls. */
+.avatar,.top-avatar,.profile-photo{position:relative;overflow:hidden}
+.avatar img,.top-avatar img,.profile-photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.avatar img[hidden],.top-avatar img[hidden],.profile-photo img[hidden]{display:none}
+.top-profile-button{display:flex;align-items:center;gap:9px;min-height:44px;min-width:44px;padding:3px;border:0;border-radius:12px;background:transparent;color:inherit;text-align:left}
+.top-profile-button:hover{background:#eeeafd}
+.profile .profile-name{flex:1;min-width:0}
+.settings-page{max-width:1060px}
+.settings-page .settings-layout{grid-template-columns:minmax(0,1.65fr) minmax(250px,1fr);gap:20px;align-items:start}
+.profile-editor{padding:26px;min-width:0}
+.settings-card-heading{display:flex;align-items:center;gap:12px;margin-bottom:24px;color:#6353be}
+.settings-card-heading h2{margin:0;color:#1e293b;font:700 21px Outfit,sans-serif;letter-spacing:-.02em}
+.settings-card-heading p{margin:4px 0 0;color:#657386;font-size:13px}
+.profile-photo-editor{display:flex;align-items:center;gap:18px;margin-bottom:24px}
+.profile-photo{display:grid;place-items:center;flex:none;width:84px;height:84px;border-radius:50%;background:#e8e1ff;color:#51439d;font:700 26px Outfit,sans-serif}
+.profile-photo-copy{flex:1;min-width:0}
+.profile-photo-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.profile-photo-copy p,.profile-help{margin:9px 0 0;color:#657386;font-size:12px;line-height:1.6}
+.profile-file-input{display:none}
+.profile-name-field{display:grid;gap:9px;color:#344257;font-size:13px;font-weight:700}
+.profile-name-field input,.settings-select{min-height:44px;border:1px solid #c5ccd6;border-radius:11px;background:#fff;color:#1e293b;padding:10px 12px}
+.profile-name-field input{width:100%;font-size:16px;caret-color:#6353be}
+.profile-help{margin-bottom:20px}
+.profile-save-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:20px}
+.settings-page .btn{min-height:44px}
+.settings-page button:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.settings-page .inline-message{font-size:13px;line-height:1.6;margin:14px 0 0}
+.settings-account{min-width:0;padding:26px;background:#f0edfa}
+.settings-account .settings-card-heading{margin-bottom:20px}
+.settings-account p{font-size:13px;color:#5f5575;line-height:1.7}
+.account-email-label{display:block;color:#5f5575;font-size:12px;font-weight:700}
+.settings-account .account-email{margin:6px 0 14px;font-weight:700;color:#343048;overflow-wrap:anywhere}
+.settings-account .connection-badge{margin-left:0;display:inline-flex;gap:6px;align-items:center}
+.account-security{border-top:1px solid #d6cee9;padding-top:18px;margin-top:22px}
+.account-security h3{margin:0;font-size:14px;color:#343048}
+.settings-preferences,.settings-data{margin-top:24px}
+.settings-page .settings-panel{padding:24px 26px;text-align:left}
+.settings-group-heading{margin:0 0 8px;font:700 20px Outfit,sans-serif;color:#1e293b;letter-spacing:-.02em}
+.settings-page .settings-section{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:16px;align-items:center;padding:20px 0}
+.settings-page .settings-section-icon{width:36px;height:36px}
+.settings-page .settings-copy{min-width:0}
+.settings-page .settings-copy h3{margin:0;color:#344257;font-size:14px;font-weight:700;line-height:1.5}
+.settings-page .settings-copy p{margin:5px 0 0;color:#657386;font-size:13px;line-height:1.6}
+.settings-page .settings-section>.btn,.settings-page .setting-value,.settings-page .connection-badge{margin-left:0}
+.settings-select{width:170px;font-size:14px}
+.settings-page .theme-toggle{min-width:60px;min-height:44px;padding:12px}
+.settings-page .theme-toggle span{width:20px;height:20px}
+.settings-page .theme-toggle-on span{transform:translateX(16px)}
+.settings-page .storage-actions{max-width:220px}
+html[data-theme="dark"] .top-profile-button:hover{background:#28243b}
+html[data-theme="dark"] .profile-photo{background:#302a47;color:#d5c8ff}
+html[data-theme="dark"] .settings-card-heading,html[data-theme="dark"] .settings-card-heading h2,html[data-theme="dark"] .settings-group-heading,html[data-theme="dark"] .settings-page .settings-copy h3,html[data-theme="dark"] .profile-name-field{color:#e6e8ef}
+html[data-theme="dark"] .settings-card-heading p,html[data-theme="dark"] .profile-photo-copy p,html[data-theme="dark"] .profile-help{color:#b0bbce}
+html[data-theme="dark"] .settings-page .settings-copy p{color:#b0bbce}
+html[data-theme="dark"] .settings-account{background:#252033;color:#e6e8ef}
+html[data-theme="dark"] .settings-account p,html[data-theme="dark"] .account-email-label{color:#c4bad9}
+html[data-theme="dark"] .settings-account .connection-badge{color:#c4bad9}
+html[data-theme="dark"] .settings-account .account-email,html[data-theme="dark"] .account-security h3{color:#eee8f8}
+html[data-theme="dark"] .account-security{border-color:#463b59}
+html[data-theme="dark"] .profile-name-field input,html[data-theme="dark"] .settings-select{background:#202532;border-color:#4b5363;color:#edf0f7}
+@media(max-width:1000px){.settings-page .settings-layout{grid-template-columns:minmax(0,1fr)}.settings-page .settings-account{padding:22px}.settings-page .settings-section{gap:12px}}
+@media(max-width:580px){
+  .profile-editor,.settings-page .settings-panel,.settings-page .settings-account{padding:20px 16px}
+  .settings-page .settings-layout{gap:16px}
+  .profile-photo-editor{align-items:flex-start;gap:14px}
+  .profile-photo{width:68px;height:68px;font-size:23px}
+  .profile-photo-actions{align-items:flex-start;flex-direction:column;gap:4px}
+  .profile-photo-actions .btn{font-size:12px;padding:10px 12px}
+  .profile-photo-copy p{font-size:12px}
+  .profile-save-actions{align-items:stretch;flex-direction:column}
+  .settings-page .settings-section{grid-template-columns:32px minmax(0,1fr) auto;gap:12px}
+  .settings-page .settings-section-icon{width:32px;height:32px}
+  .settings-page .settings-copy h3{font-size:14px}
+  .settings-page .settings-copy p{font-size:12px}
+  .settings-page .settings-section>.btn,.settings-page .settings-select,.settings-page .storage-actions{grid-column:2 / -1;justify-self:start;max-width:100%;margin-left:0}
+  .settings-select{width:100%;font-size:16px}
+  .settings-group-heading{font-size:18px}
+  .settings-page .setting-value{font-size:12px}
+  .settings-preferences,.settings-data{margin-top:16px}
+}
+html[data-reduced-motion="true"] *,html[data-reduced-motion="true"] *::before,html[data-reduced-motion="true"] *::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;transition-delay:0s!important}
+html[data-reduced-motion="true"] .motivation-spinning{animation:none!important}

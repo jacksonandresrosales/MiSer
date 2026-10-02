@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ArrowDownLeft, ArrowLeft, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check,
-  CheckCircle2, ChevronDown, CircleHelp, CreditCard, Download, Ellipsis, Heart,
+  CheckCircle2, ChevronDown, CreditCard, Download, Ellipsis, Heart,
   ExternalLink, Eye, EyeOff, ImagePlus, LayoutDashboard, Link2, ListChecks, LogOut, Menu, Pencil,
   Moon, Plus, Quote, RefreshCw, Search, Settings, ShoppingBag, Sparkles, Sun, Target,
-  Wallet, X,
+  ShieldCheck, UserRound, Wallet, X,
 } from 'lucide-react'
 import {
   createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, reload,
@@ -12,16 +12,17 @@ import {
   signOut as firebaseSignOut,
 } from 'firebase/auth'
 import { firebaseAuth, firebaseConfigured, firebaseMisconfigured, firestore } from './firebase'
-import { changedRecords, flattenData, loadFinanceData, saveFinanceRecord } from './financeStore'
+import { changedRecords, flattenData, loadFinanceData, saveFinanceRecord, saveUserProfile } from './financeStore'
 import { goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney, type FinanceRecord, type RecordMap } from './financeData'
 import { demoData } from './demoData'
 import { philosophyQuotes } from './quotes'
 import type { AnnualGoal, Budget, CalendarEvent, FinanceData, ShoppingItem, ShoppingList, Transaction } from './types'
+import { defaultPreferences, parsePreferences, parseProfile, profileInitials, profilePhotoSrc, validateProfile, type Preferences, type UserProfile } from './userProfile'
 import './MiSer.css'
 
 type Page = 'overview' | 'activity' | 'calendar' | 'goals' | 'shopping' | 'settings'
 type Modal = { kind: 'transaction'; item?: Transaction } | { kind: 'event'; item?: CalendarEvent; date?: string } | { kind: 'goal'; item?: AnnualGoal } | { kind: 'list'; item?: ShoppingList } | { kind: 'shoppingItem'; listId: string; item?: ShoppingItem } | { kind: 'budget'; item?: Budget } | null
-type Session = { user: { id: string; email?: string; verified: boolean } } | null
+type Session = { user: { id: string; email?: string; verified: boolean; passwordAccount: boolean } } | null
 type MotivationQuote = { text: string; author: string; work?: string; source: string; sourceLabel?: string; translation?: boolean }
 
 const currency = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
@@ -35,6 +36,13 @@ const demoStorageKey = 'miser-demo'
 const previousDemoStorageKey = 'brisa-demo'
 const seenMotivationQuotesKey = 'miser-seen-motivation-quotes'
 const dailyMotivationQuoteKey = 'miser-daily-motivation-quote'
+const demoProfileKey = 'miser-demo-profile'
+const preferencesKey = 'miser-preferences'
+const emptyProfile: UserProfile = { displayName: 'Mi espacio', photoURL: '' }
+const readPreferences = () => {
+  try { return parsePreferences(JSON.parse(localStorage.getItem(preferencesKey) ?? 'null')) }
+  catch { return defaultPreferences }
+}
 
 const normalizeQuotePart = (value: string) => value.normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('es').replace(/[\p{P}\p{S}\s]+/gu, '')
 const quoteIdentity = (quote: MotivationQuote) => normalizeQuotePart(quote.text)
@@ -82,21 +90,25 @@ const webUrl = (value: string) => {
 const shoppingImageSrc = (value?: string) => value?.startsWith('data:image/jpeg;base64,') ? value : value ? webUrl(value) : null
 const linkLabel = (value: string) => new URL(value).hostname.replace(/^www\./, '')
 
-async function compressShoppingImage(file: File): Promise<string> {
+async function compressImage(file: File, avatar = false): Promise<string> {
   if (!/^image\/(jpeg|png|webp|avif)$/.test(file.type)) throw new Error('Usa una imagen JPG, PNG, WebP o AVIF.')
   if (file.size > 10 * 1024 * 1024) throw new Error('La imagen debe pesar menos de 10 MB.')
-  const bitmap = await createImageBitmap(file)
+  const bitmap = await createImageBitmap(file).catch(() => { throw new Error('No se pudo leer la imagen. Prueba con otro archivo JPG, PNG, WebP o AVIF.') })
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
-      const scale = Math.min(1, 760 * Math.pow(0.78, attempt) / Math.max(bitmap.width, bitmap.height))
+      const edge = (avatar ? 256 : 760) * Math.pow(0.78, attempt)
+      const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height))
       const canvas = document.createElement('canvas')
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale))
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+      canvas.width = avatar ? Math.round(edge) : Math.max(1, Math.round(bitmap.width * scale))
+      canvas.height = avatar ? Math.round(edge) : Math.max(1, Math.round(bitmap.height * scale))
       const context = canvas.getContext('2d')
       if (!context) throw new Error('No se pudo preparar la imagen.')
       context.fillStyle = '#ffffff'
       context.fillRect(0, 0, canvas.width, canvas.height)
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+      if (avatar) {
+        const crop = Math.min(bitmap.width, bitmap.height)
+        context.drawImage(bitmap, (bitmap.width - crop) / 2, (bitmap.height - crop) / 2, crop, crop, 0, 0, canvas.width, canvas.height)
+      } else context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
       const result = canvas.toDataURL('image/jpeg', Math.max(0.48, 0.78 - attempt * 0.08))
       if (result.length <= 140_000) return result
     }
@@ -106,6 +118,11 @@ async function compressShoppingImage(file: File): Promise<string> {
 
 function BrandMark() {
   return <span className="brand-mark"><img src="/favicon.svg" alt="" /></span>
+}
+
+function ProfileAvatar({ profile, className = 'avatar' }: { profile: UserProfile; className?: string }) {
+  const src = profilePhotoSrc(profile.photoURL)
+  return <span className={className} aria-hidden="true">{profileInitials(profile.displayName)}{src && <img key={src} src={src} alt="" referrerPolicy="no-referrer" onError={event => { event.currentTarget.hidden = true }} />}</span>
 }
 
 const navItems: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
@@ -236,7 +253,13 @@ function VerifyEmailScreen({ email, onVerified, onLogout }: { email: string; onV
 }
 
 function App() {
-  const [page, setPage] = useState<Page>('overview')
+  const [preferences, setPreferences] = useState<Preferences>(readPreferences)
+  const [page, setPage] = useState<Page>(preferences.startPage)
+  const [profile, setProfile] = useState<UserProfile>(() => {
+    if (firebaseConfigured) return emptyProfile
+    try { return parseProfile(JSON.parse(localStorage.getItem(demoProfileKey) ?? 'null')) ?? emptyProfile }
+    catch { return emptyProfile }
+  })
   const [demoEntryOpen, setDemoEntryOpen] = useState(!firebaseConfigured && !firebaseMisconfigured)
   const [darkMode, setDarkMode] = useState(() => {
     try { return localStorage.getItem('miser-theme') === 'dark' } catch { return false }
@@ -267,7 +290,8 @@ function App() {
   useEffect(() => {
     if (!firebaseAuth) return
     return onAuthStateChanged(firebaseAuth, next => {
-      setSession(next ? { user: { id: next.uid, email: next.email ?? undefined, verified: next.emailVerified } } : null)
+      setSession(next ? { user: { id: next.uid, email: next.email ?? undefined, verified: next.emailVerified, passwordAccount: next.providerData.some(provider => provider.providerId === 'password') } } : null)
+      setProfile(next ? { displayName: next.displayName?.trim() || 'Mi espacio', photoURL: profilePhotoSrc(next.photoURL ?? '') ?? '' } : emptyProfile)
       setAuthReady(true)
       if (!next) { dataRef.current = null; setData(null); setLoaded(false); setLoadedUserId(null) }
     })
@@ -297,6 +321,7 @@ function App() {
       const restoredData = inflateRecords(restored)
       dataRef.current = restoredData
       setData(restoredData)
+      if (result.profile) setProfile(result.profile)
       setSyncStatus(changedRecords(result.records, restored).length ? 'pending' : 'saved')
       setSyncMessage('')
       setLoadedUserId(userId)
@@ -364,6 +389,10 @@ function App() {
     try { localStorage.setItem('miser-theme', darkMode ? 'dark' : 'light') } catch { /* Theme still applies for this session. */ }
   }, [darkMode])
 
+  useEffect(() => {
+    document.documentElement.dataset.reducedMotion = String(preferences.reducedMotion)
+  }, [preferences.reducedMotion])
+
   function showToast(message: string) { setToast(message) }
   const today = new Date()
   const currentMonth = monthId(today)
@@ -394,6 +423,27 @@ function App() {
     catch { showToast('No se pudo cerrar sesión. Revisa tu conexión e inténtalo de nuevo.') }
   }
   const leaveDemo = () => { setDemoEntryOpen(true); setPage('overview'); setMenuOpen(false); setModal(null) }
+  const saveProfile = async (draft: UserProfile) => {
+    const next = validateProfile(draft)
+    if (firebaseConfigured) {
+      if (!firestore || !userId || firebaseAuth?.currentUser?.uid !== userId || loadedUserId !== userId) throw new Error('Tu sesión cambió. Vuelve a iniciar sesión antes de guardar.')
+      await saveUserProfile(firestore, userId, next)
+      if (firebaseAuth.currentUser?.uid !== userId) throw new Error('El perfil se guardó, pero tu sesión cambió. Vuelve a iniciar sesión.')
+    } else {
+      try { localStorage.setItem(demoProfileKey, JSON.stringify(next)) }
+      catch { throw new Error('No hay espacio para guardar el perfil en este navegador. Prueba con una foto más pequeña.') }
+    }
+    setProfile(next)
+    return next
+  }
+  const changePreferences = (next: Preferences) => {
+    try { localStorage.setItem(preferencesKey, JSON.stringify(next)); setPreferences(next) }
+    catch { showToast('No se pudieron guardar las preferencias en este dispositivo.') }
+  }
+  const requestPasswordChange = async () => {
+    if (!firebaseAuth || !session?.user.email || firebaseAuth.currentUser?.uid !== userId) throw new Error('Vuelve a iniciar sesión antes de solicitar el enlace.')
+    await sendPasswordResetEmail(firebaseAuth, session.user.email)
+  }
   const saveTransaction = (item: Transaction) => modify(old => ({ ...old, transactions: [item, ...old.transactions.filter(t => t.id !== item.id)] }))
   const saveEvent = (item: CalendarEvent) => modify(old => ({ ...old, events: [...old.events.filter(e => e.id !== item.id), item].sort((a, b) => a.date.localeCompare(b.date)) }))
   const saveGoal = (item: AnnualGoal) => modify(old => ({ ...old, goals: old.goals.some(goal => goal.id === item.id) ? old.goals.map(goal => goal.id === item.id ? item : goal) : [...old.goals, item] }))
@@ -420,11 +470,11 @@ function App() {
       <div className="sidebar-brand"><BrandMark /><span>MiSer</span><button className="icon-button close-menu" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú"><X size={18} /></button></div>
       <div className="sidebar-label">ESPACIO PERSONAL</div>
       <nav className="main-nav">{navItems.map(item => { const Icon = item.id === 'activity' ? Wallet : item.id === 'shopping' ? ListChecks : item.icon; return <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => { setPage(item.id); setMenuOpen(false) }}><Icon size={18} strokeWidth={1.8} /><span>{item.id === 'activity' ? 'Finanzas' : item.id === 'goals' ? 'Objetivos' : item.id === 'shopping' ? 'Compras' : item.label}</span>{item.id === 'shopping' && <span className="nav-count">{data.lists.length}</span>}</button>})}</nav>
-      <div className="sidebar-bottom"><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}><Settings size={18} strokeWidth={1.8} /><span>Ajustes</span></button><div className="profile"><span className="avatar">{isDemo ? 'M' : (session?.user.email?.[0] ?? 'T').toUpperCase()}</span><span className="profile-name">{isDemo ? 'Mi espacio' : session?.user.email}</span>{isDemo ? <button className="demo-exit" onClick={leaveDemo}><LogOut size={14} /> Salir</button> : <button className="icon-button" onClick={signOut} aria-label="Cerrar sesión"><LogOut size={16} /></button>}</div></div>
+      <div className="sidebar-bottom"><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => { setPage('settings'); setMenuOpen(false) }}><Settings size={18} strokeWidth={1.8} /><span>Ajustes</span></button><div className="profile"><ProfileAvatar profile={profile} /><span className="profile-name">{profile.displayName}</span>{isDemo ? <button className="demo-exit" onClick={leaveDemo}><LogOut size={14} /> Salir</button> : <button className="icon-button" onClick={signOut} aria-label="Cerrar sesión"><LogOut size={16} /></button>}</div></div>
     </aside>
     {menuOpen && <button className="sidebar-scrim" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />}
     <main className="main-content">
-      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Abrir menú"><Menu size={20} /></button><div className="breadcrumb"><span>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }).format(today)}</span><strong>{page === 'overview' ? 'Hola, qué bueno verte ✦' : title}</strong></div><div className="topbar-actions"><button className="icon-button notification-button" onClick={() => { setPage('calendar'); showToast('Aquí verás tus eventos y próximos pagos.') }} aria-label="Ver recordatorios"><Bell size={18} /><i /></button><button className="icon-button theme-quick-toggle" type="button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'} title={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button><span className="top-avatar">{isDemo ? 'M' : (session?.user.email?.[0] ?? 'T').toUpperCase()}</span><span className="profile-name top-profile-name">{isDemo ? 'Mi espacio' : session?.user.email}</span></div></header>
+      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Abrir menú"><Menu size={20} /></button><div className="breadcrumb"><span>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }).format(today)}</span><strong>{page === 'overview' ? 'Hola, qué bueno verte ✦' : title}</strong></div><div className="topbar-actions"><button className="icon-button notification-button" onClick={() => { setPage('calendar'); showToast('Aquí verás tus eventos y próximos pagos.') }} aria-label="Ver recordatorios"><Bell size={18} /><i /></button><button className="icon-button theme-quick-toggle" type="button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'} title={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button><button className="top-profile-button" type="button" onClick={() => { setPage('settings'); setMenuOpen(false) }} aria-label={`Editar perfil de ${profile.displayName}`}><ProfileAvatar profile={profile} className="top-avatar" /><span className="profile-name top-profile-name">{profile.displayName}</span></button></div></header>
       {isDemo && <div className="demo-banner"><span><Sparkles size={14} /> Estás explorando el modo de demostración. Tus cambios se guardan solo en este navegador.</span><button onClick={leaveDemo}>Ver acceso <ArrowRight size={13} /></button></div>}
       {!isDemo && syncStatus !== 'saved' && <div className={`sync-banner ${syncStatus === 'error' ? 'sync-banner-error' : ''}`} role={syncStatus === 'error' ? 'alert' : 'status'}><span>{syncStatus === 'error' ? syncMessage : syncStatus === 'saving' ? 'Guardando cambios…' : 'Cambios pendientes de guardar…'}</span>{syncStatus === 'error' && <div><button onClick={() => setSaveAttempt(value => value + 1)}>Reintentar</button><button onClick={exportData}>Exportar copia</button></div>}</div>}
       {page === 'overview' && <Overview data={data} expenses={expenses} currentMonth={currentMonth} onAdd={() => setModal({ kind: 'transaction' })} onEditTransaction={item => setModal({ kind: 'transaction', item })} onNavigate={setPage} />}
@@ -432,7 +482,7 @@ function App() {
        {page === 'calendar' && <CalendarPage data={data} onAdd={date => setModal({ kind: 'event', date })} onEdit={item => setModal({ kind: 'event', item })} onDelete={deleteEvent} />}
        {page === 'goals' && <GoalsPage data={data} onAdd={() => setModal({ kind: 'goal' })} onEdit={item => setModal({ kind: 'goal', item })} onToggle={item => saveGoal({ ...item, completed: !goalCompleted(item) })} onDelete={deleteGoal} />}
       {page === 'shopping' && <ShoppingPage data={data} modify={modify} onAdd={() => setModal({ kind: 'list' })} onEdit={item => setModal({ kind: 'list', item })} onDelete={deleteList} onAddItem={listId => setModal({ kind: 'shoppingItem', listId })} onEditItem={(listId, item) => setModal({ kind: 'shoppingItem', listId, item })} />}
-       {page === 'settings' && <SettingsPage isDemo={isDemo} email={session?.user.email ?? ''} syncStatus={syncStatus} syncMessage={syncMessage} onRetry={() => setSaveAttempt(value => value + 1)} onExport={exportData} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => setModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} onExitDemo={leaveDemo} />}
+       {page === 'settings' && <SettingsPage key={userId ?? 'demo'} isDemo={isDemo} email={session?.user.email ?? ''} profile={profile} onSaveProfile={saveProfile} preferences={preferences} onPreferencesChange={changePreferences} passwordAccount={session?.user.passwordAccount ?? false} onPasswordChange={requestPasswordChange} syncStatus={syncStatus} syncMessage={syncMessage} onRetry={() => setSaveAttempt(value => value + 1)} onExport={exportData} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => setModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} onExitDemo={leaveDemo} />}
     </main>
     {modal && <EditModal modal={modal} month={currentMonth} onClose={() => setModal(null)} onSaveTransaction={saveTransaction} onSaveEvent={saveEvent} onSaveGoal={saveGoal} onSaveList={saveList} onSaveShoppingItem={saveShoppingItem} onSaveBudget={saveBudget} />}
      {toast && <div className="toast" role="status"><CheckCircle2 size={17} />{toast}</div>}
@@ -605,18 +655,105 @@ function ShoppingPage({ data, modify, onAdd, onEdit, onDelete, onAddItem, onEdit
     })}<button className="new-list-card" onClick={onAdd}><span><Plus size={20} /></span><strong>Crear otra lista</strong><small>Por tienda, ocasión o como prefieras</small></button></div> : <div className="panel"><EmptyState icon={<ListChecks size={21} />} title="Tus listas empiezan aquí" text="Crea una lista para la semana, una tienda o un proyecto." /><button className="btn btn-primary" onClick={onAdd}><Plus size={16} /> Crear lista</button></div>}
   </div>
 }
-function SettingsPage({ isDemo, email, syncStatus, syncMessage, onRetry, onExport, darkMode, onDarkModeChange, onBudget, onLogout, onExitDemo }: { isDemo: boolean; email: string; syncStatus: 'saved' | 'pending' | 'saving' | 'error'; syncMessage: string; onRetry: () => void; onExport: () => void; darkMode: boolean; onDarkModeChange: (enabled: boolean) => void; onBudget: () => void; onLogout: () => void; onExitDemo: () => void }) {
+function SettingsPage({ isDemo, email, profile, onSaveProfile, preferences, onPreferencesChange, passwordAccount, onPasswordChange, syncStatus, syncMessage, onRetry, onExport, darkMode, onDarkModeChange, onBudget, onLogout, onExitDemo }: {
+  isDemo: boolean; email: string; profile: UserProfile; onSaveProfile: (draft: UserProfile) => Promise<UserProfile>;
+  preferences: Preferences; onPreferencesChange: (next: Preferences) => void; passwordAccount: boolean; onPasswordChange: () => Promise<void>;
+  syncStatus: 'saved' | 'pending' | 'saving' | 'error'; syncMessage: string; onRetry: () => void; onExport: () => void;
+  darkMode: boolean; onDarkModeChange: (enabled: boolean) => void; onBudget: () => void; onLogout: () => void; onExitDemo: () => void;
+}) {
+  const [draft, setDraft] = useState(profile)
+  const [saving, setSaving] = useState(false)
+  const [imageBusy, setImageBusy] = useState(false)
+  const [profileMessage, setProfileMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
+  const [passwordBusy, setPasswordBusy] = useState(false)
+  const [passwordMessage, setPasswordMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
+  const imageInput = useRef<HTMLInputElement>(null)
+  const dirty = draft.displayName !== profile.displayName || draft.photoURL !== profile.photoURL
   const statusLabel = isDemo ? 'Solo local' : syncStatus === 'saved' ? 'Sincronizado' : syncStatus === 'saving' ? 'Guardando…' : syncStatus === 'pending' ? 'Pendiente' : 'Sin guardar'
-  return <div className="page-wrap">
-    <PageHeading eyebrow="TU ESPACIO, TUS PREFERENCIAS" title="Ajustes" subtitle="Administra tu presupuesto y la forma en que guardas tus datos." />
-    <div className="settings-layout"><section className="panel settings-panel">
-      <div className="settings-section"><div className="settings-section-icon">{darkMode ? <Moon size={18} /> : <Sun size={18} />}</div><div className="settings-copy"><h2>Modo oscuro</h2><p>Reduce el brillo de MiSer. Esta preferencia se guarda en este navegador.</p></div><button className={`theme-toggle ${darkMode ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={darkMode} aria-label="Activar modo oscuro" onClick={() => onDarkModeChange(!darkMode)}><span /></button><span className="setting-value theme-value">{darkMode ? 'Activado' : 'Desactivado'}</span></div>
-      <div className="settings-section"><div className="settings-section-icon"><Wallet size={18} /></div><div className="settings-copy"><h2>Presupuesto mensual</h2><p>Configura tu límite general y los límites de cada categoría.</p></div><button className="btn btn-soft" onClick={onBudget}>Editar presupuesto</button></div>
-      <div className="settings-section"><div className="settings-section-icon"><Heart size={18} /></div><div className="settings-copy"><h2>Moneda principal</h2><p>Todos los importes se registran en dólares estadounidenses.</p></div><span className="setting-value">USD · $</span></div>
-      <div className="settings-section"><div className="settings-section-icon"><Download size={18} /></div><div className="settings-copy"><h2>Privacidad y almacenamiento</h2><p>{isDemo ? 'Modo demostración: los cambios se guardan solo en este navegador.' : `Datos de ${email}. Los cambios se guardan por separado en Firestore.`}</p>{syncMessage && <p className="sync-message" role="alert">{syncMessage}</p>}</div><div className="storage-actions"><span className={`connection-badge ${isDemo ? 'connection-demo' : ''} ${syncStatus === 'error' ? 'connection-error' : ''}`} role="status"><i />{statusLabel}</span><button className="btn btn-soft" onClick={onExport}><Download size={15} /> Exportar JSON</button>{syncStatus === 'error' && <button className="btn btn-primary" onClick={onRetry}>Reintentar</button>}</div></div>
-      <div className="settings-section"><div className="settings-section-icon"><LogOut size={18} /></div><div className="settings-copy"><h2>{isDemo ? 'Demostración' : 'Sesión'}</h2><p>{isDemo ? 'Vuelve a la vista previa del acceso.' : 'Cierra sesión en este dispositivo.'}</p></div><button className="btn btn-soft" onClick={isDemo ? onExitDemo : onLogout}>{isDemo ? 'Salir del demo' : 'Cerrar sesión'}</button></div>
-    </section><aside className="setup-card"><div className="setup-icon"><CircleHelp size={18} /></div><span className="eyebrow">TU INFORMACIÓN</span><h2>{isDemo ? '¿Quieres sincronizar?' : 'Todo en su lugar.'}</h2><p>{isDemo ? 'Conecta un proyecto de Firebase para habilitar cuentas privadas y ver tus datos en otros dispositivos. Configura las variables y reglas del proyecto.' : 'Tus registros están protegidos por tu cuenta.'}</p><span className="setup-foot"><CheckCircle2 size={15} /> {isDemo ? 'Tus datos de muestra se quedan aquí' : 'Acceso protegido por tu cuenta'}</span></aside></div>
-    <div className="settings-tip"><Sparkles size={16} /><span><strong>Un consejo:</strong> reserva un momento al final de cada semana para revisar tus movimientos y actualizar tus objetivos.</span></div>
+
+  const uploadPhoto = async (file?: File) => {
+    if (!file) return
+    setImageBusy(true)
+    setProfileMessage(null)
+    try {
+      const photoURL = await compressImage(file, true)
+      setDraft(current => ({ ...current, photoURL }))
+    } catch (error) { setProfileMessage({ kind: 'error', text: error instanceof Error ? error.message : 'No se pudo preparar la foto. Prueba con otra imagen.' }) }
+    finally { setImageBusy(false) }
+  }
+  const submitProfile = async (event: FormEvent) => {
+    event.preventDefault()
+    if (saving || imageBusy) return
+    setSaving(true)
+    setProfileMessage(null)
+    try {
+      const next = await onSaveProfile(validateProfile(draft))
+      setDraft(next)
+      setProfileMessage({ kind: 'success', text: isDemo ? 'Perfil guardado en este dispositivo.' : 'Perfil guardado. Tu nombre y foto aparecerán al abrir MiSer en tus otros dispositivos.' })
+    } catch (error) {
+      const text = error instanceof Error && !('code' in error) ? error.message : 'No se pudo guardar el perfil. Revisa tu conexión y vuelve a intentarlo.'
+      setProfileMessage({ kind: 'error', text })
+    } finally { setSaving(false) }
+  }
+  const changePassword = async () => {
+    if (passwordBusy) return
+    setPasswordBusy(true)
+    setPasswordMessage(null)
+    try { await onPasswordChange(); setPasswordMessage({ kind: 'success', text: 'Enlace enviado a tu correo. Revisa también la carpeta de spam.' }) }
+    catch { setPasswordMessage({ kind: 'error', text: 'No se pudo enviar el enlace. Revisa tu conexión y vuelve a intentarlo.' }) }
+    finally { setPasswordBusy(false) }
+  }
+
+  return <div className="page-wrap settings-page">
+    <div className="page-heading"><div><h1>Ajustes</h1><p>Tu perfil, tu cuenta y un espacio a tu manera.</p></div></div>
+    <div className="settings-layout settings-profile-layout">
+      <section className="panel profile-editor" aria-labelledby="profile-heading">
+        <div className="settings-card-heading"><UserRound size={19} /><div><h2 id="profile-heading">Tu perfil</h2><p>Así te verás dentro de MiSer.</p></div></div>
+        <form onSubmit={event => void submitProfile(event)}>
+          <div className="profile-photo-editor">
+            <ProfileAvatar profile={draft} className="profile-photo" />
+            <div className="profile-photo-copy"><div className="profile-photo-actions">
+              <button className="btn btn-soft" type="button" disabled={saving || imageBusy} onClick={() => imageInput.current?.click()}><ImagePlus size={16} />{imageBusy ? 'Preparando foto…' : draft.photoURL ? 'Cambiar foto' : 'Añadir foto'}</button>
+              {draft.photoURL && <button className="btn btn-quiet" type="button" disabled={saving || imageBusy} onClick={() => { setDraft(current => ({ ...current, photoURL: '' })); setProfileMessage(null) }}>Quitar foto</button>}
+            </div><p>JPG, PNG, WebP o AVIF · hasta 10 MB. La foto se recorta al centro y se reduce automáticamente.</p></div>
+            <input ref={imageInput} className="profile-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/avif" aria-label="Seleccionar foto de perfil" disabled={saving || imageBusy} onChange={event => { void uploadPhoto(event.target.files?.[0]); event.target.value = '' }} />
+          </div>
+          <label className="profile-name-field" htmlFor="profile-display-name">Nombre de usuario
+            <input id="profile-display-name" type="text" autoComplete="nickname" required minLength={2} maxLength={50} value={draft.displayName} disabled={saving} onChange={event => { setDraft(current => ({ ...current, displayName: event.target.value })); setProfileMessage(null) }} aria-describedby="profile-name-help" />
+          </label>
+          <p id="profile-name-help" className="profile-help">Se mostrará en lugar de tu correo. Es un nombre visible, no cambia tu forma de iniciar sesión.</p>
+          {profileMessage && <p className={`inline-message ${profileMessage.kind === 'success' ? 'inline-message-success' : ''}`} role={profileMessage.kind === 'error' ? 'alert' : 'status'}>{profileMessage.text}</p>}
+          <div className="profile-save-actions"><button className="btn btn-primary" disabled={saving || imageBusy || !dirty}>{saving ? 'Guardando…' : 'Guardar perfil'}<Check size={16} /></button>
+            {dirty && <button className="btn btn-quiet" type="button" disabled={saving || imageBusy} onClick={() => { setDraft(profile); setProfileMessage(null) }}>Descartar cambios</button>}
+          </div>
+        </form>
+      </section>
+      <aside className="setup-card settings-account" aria-labelledby="account-heading">
+        <div className="settings-card-heading"><ShieldCheck size={19} /><h2 id="account-heading">Tu cuenta</h2></div>
+        {isDemo ? <><p>Estás en una demostración. El perfil y tus datos se guardan solo en este navegador.</p><span className="connection-badge connection-demo">Solo en este dispositivo</span></> : <>
+          <span className="account-email-label">Correo de acceso</span><p className="account-email">{email}</p>
+          <span className="connection-badge"><CheckCircle2 size={14} />Correo verificado</span>
+          <p>El correo solo aparece aquí. Tu perfil no es público y no cambia el nombre de tu cuenta de Google.</p>
+          <div className="account-security"><h3>Seguridad</h3><p>{passwordAccount ? 'Recibe un enlace para cambiar tu contraseña de forma segura.' : 'Inicias sesión con Google. Administra tu contraseña desde tu cuenta de Google.'}</p>
+            {passwordAccount && <button className="btn btn-soft" type="button" disabled={passwordBusy} onClick={() => void changePassword()}>{passwordBusy ? 'Enviando…' : 'Enviar enlace de cambio'}</button>}
+            {passwordMessage && <p className={`inline-message ${passwordMessage.kind === 'success' ? 'inline-message-success' : ''}`} role={passwordMessage.kind === 'error' ? 'alert' : 'status'}>{passwordMessage.text}</p>}
+          </div>
+        </>}
+      </aside>
+    </div>
+    <section className="panel settings-panel settings-preferences" aria-labelledby="preferences-heading">
+      <h2 id="preferences-heading" className="settings-group-heading">Preferencias de este dispositivo</h2>
+      <div className="settings-section"><div className="settings-section-icon">{darkMode ? <Moon size={18} /> : <Sun size={18} />}</div><div className="settings-copy"><h3>Modo oscuro</h3><p>Un aspecto más cómodo para ambientes con poca luz.</p></div><button className={`theme-toggle ${darkMode ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={darkMode} aria-label="Modo oscuro" onClick={() => onDarkModeChange(!darkMode)}><span /></button></div>
+      <div className="settings-section"><div className="settings-section-icon"><LayoutDashboard size={18} /></div><div className="settings-copy"><h3><label htmlFor="settings-start-page">Pantalla de inicio</label></h3><p>Elige qué ver al volver a abrir MiSer.</p></div><select id="settings-start-page" className="settings-select" value={preferences.startPage} onChange={event => onPreferencesChange({ ...preferences, startPage: parsePreferences({ startPage: event.target.value }).startPage })}><option value="overview">Resumen</option><option value="activity">Finanzas</option><option value="calendar">Calendario</option><option value="goals">Objetivos</option><option value="shopping">Compras</option></select></div>
+      <div className="settings-section"><div className="settings-section-icon"><Eye size={18} /></div><div className="settings-copy"><h3>Movimiento reducido</h3><p>Reduce las animaciones. También respetamos la preferencia de tu sistema.</p></div><button className={`theme-toggle ${preferences.reducedMotion ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={preferences.reducedMotion} aria-label="Movimiento reducido" onClick={() => onPreferencesChange({ ...preferences, reducedMotion: !preferences.reducedMotion })}><span /></button></div>
+    </section>
+    <section className="panel settings-panel settings-data" aria-labelledby="data-settings-heading">
+      <h2 id="data-settings-heading" className="settings-group-heading">Tus finanzas y tus datos</h2>
+      <div className="settings-section"><div className="settings-section-icon"><Wallet size={18} /></div><div className="settings-copy"><h3>Presupuesto mensual</h3><p>Configura tu límite general y los límites de cada categoría.</p></div><button className="btn btn-soft" onClick={onBudget}>Editar presupuesto</button></div>
+      <div className="settings-section"><div className="settings-section-icon"><Heart size={18} /></div><div className="settings-copy"><h3>Moneda principal</h3><p>Los importes se registran en dólares estadounidenses.</p></div><span className="setting-value">USD · $</span></div>
+      <div className="settings-section"><div className="settings-section-icon"><Download size={18} /></div><div className="settings-copy"><h3>Copia de tus datos</h3><p>Descarga tus movimientos, objetivos, eventos, listas y presupuestos en un archivo JSON. No incluye el perfil.</p>{syncMessage && <p className="sync-message" role="alert">{syncMessage}</p>}</div><div className="storage-actions"><span className={`connection-badge ${isDemo ? 'connection-demo' : ''} ${syncStatus === 'error' ? 'connection-error' : ''}`} role="status"><i />{statusLabel}</span><button className="btn btn-soft" onClick={onExport}><Download size={15} />Exportar JSON</button>{syncStatus === 'error' && <button className="btn btn-primary" onClick={onRetry}>Reintentar</button>}</div></div>
+      <div className="settings-section"><div className="settings-section-icon"><LogOut size={18} /></div><div className="settings-copy"><h3>{isDemo ? 'Demostración' : 'Sesión'}</h3><p>{isDemo ? 'Vuelve al acceso sin borrar tus datos de muestra.' : 'Cierra sesión únicamente en este dispositivo.'}</p></div><button className="btn btn-soft" onClick={isDemo ? onExitDemo : onLogout}>{isDemo ? 'Salir del demo' : 'Cerrar sesión'}</button></div>
+    </section>
   </div>
 }
 
@@ -661,7 +798,7 @@ function EditModal({ modal, month, onClose, onSaveTransaction, onSaveEvent, onSa
   const uploadImage = async (file?: File) => {
     if (!file) return
     setImageBusy(true); setFormError('')
-    try { setImageUrl(await compressShoppingImage(file)) }
+    try { setImageUrl(await compressImage(file)) }
     catch (error) { setFormError(error instanceof Error ? error.message : 'No se pudo cargar la imagen.') }
     finally { setImageBusy(false) }
   }
