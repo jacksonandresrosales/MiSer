@@ -56,7 +56,7 @@ jobs:
       - name: Sync Capacitor Android
         run: |
           npx cap sync android
-          node --input-type=module -e "import fs from 'node:fs'; import assert from 'node:assert/strict'; const plugins = JSON.parse(fs.readFileSync('android/app/src/main/assets/capacitor.plugins.json', 'utf8')); for (const pkg of ['@capacitor/filesystem', '@capacitor/share']) assert.ok(plugins.some(p => p.pkg === pkg), 'Plugin Android no registrado: ' + pkg);"
+          node --input-type=module -e "import fs from 'node:fs'; import assert from 'node:assert/strict'; const plugins = JSON.parse(fs.readFileSync('android/app/src/main/assets/capacitor.plugins.json', 'utf8')); for (const pkg of ['@capacitor/filesystem', '@capacitor/share', '@capacitor-firebase/authentication']) assert.ok(plugins.some(p => p.pkg === pkg), 'Plugin Android no registrado: ' + pkg); const config = JSON.parse(fs.readFileSync('android/app/src/main/assets/capacitor.config.json', 'utf8')); assert.equal(config.plugins.FirebaseAuthentication.skipNativeAuth, true); assert.ok(config.plugins.FirebaseAuthentication.providers.includes('google.com'));"
 
       - name: Restore stable development signing key
         env:
@@ -75,6 +75,8 @@ jobs:
           ./gradlew assembleDebug --stacktrace
 
       - name: Verify and prepare APK
+        env:
+          FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || vars.VITE_FIREBASE_PROJECT_ID }}
         run: |
           mkdir -p artifacts
           cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/MiSer.apk
@@ -83,8 +85,24 @@ jobs:
           keytool -exportcert -keystore "$MISER_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey -file "$RUNNER_TEMP/miser-signing.cer"
           EXPECTED_CERT_SHA256=$(sha256sum "$RUNNER_TEMP/miser-signing.cer" | cut -d ' ' -f 1)
           grep -Fi "certificate SHA-256 digest: $EXPECTED_CERT_SHA256" artifacts/certificado.txt
+          EXPECTED_CERT_SHA1=$(sha1sum "$RUNNER_TEMP/miser-signing.cer" | cut -d ' ' -f 1)
+          node --input-type=module - "$EXPECTED_CERT_SHA1" <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const config = JSON.parse(fs.readFileSync('android/app/google-services.json', 'utf8'));
+          const capacitor = JSON.parse(fs.readFileSync('android/app/src/main/assets/capacitor.config.json', 'utf8'));
+          assert.equal(config.project_info.project_id, process.env.FIREBASE_PROJECT_ID, 'Firebase web y Android deben usar el mismo proyecto');
+          const client = config.client.find(c => c.client_info.android_client_info.package_name === capacitor.appId);
+          assert.ok(client, 'Falta la aplicación Android en Firebase');
+          assert.ok(client.oauth_client.some(c => c.client_type === 1 && c.android_info.package_name === capacitor.appId && c.android_info.certificate_hash.toLowerCase() === process.argv[2]), 'La SHA-1 OAuth no coincide con la firma de la APK');
+          const webClient = client.oauth_client.find(c => c.client_type === 3);
+          assert.ok(webClient, 'Falta el cliente OAuth web para obtener el ID token de Google');
+          const resources = fs.readFileSync('android/app/build/generated/res/google-services/debug/values/values.xml', 'utf8');
+          assert.ok(resources.includes(webClient.client_id), 'No se generó el cliente OAuth para Google');
+          assert.ok(resources.includes(client.client_info.mobilesdk_app_id), 'No se generó la configuración Firebase Android');
+          NODE
           (cd artifacts && sha256sum MiSer.apk > MiSer.apk.sha256)
-          echo 'APK de pruebas con Firebase y firma estable. Google nativo pendiente de configuración Android.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'APK de pruebas con Google nativo integrado. Firebase, clientes OAuth y firma estable verificados; prueba el acceso en un teléfono.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
