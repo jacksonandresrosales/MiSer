@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MiSer</string>
+    <string name="title_activity_main">MiSer</string>
+    <string name="package_name">com.miser.finanzas</string>
+    <string name="custom_url_scheme">com.miser.finanzas</string>
+</resources>
