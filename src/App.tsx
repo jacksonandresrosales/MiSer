@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
+import { Share } from '@capacitor/share'
 import {
   ArrowDownLeft, ArrowLeft, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check,
   CheckCircle2, ChevronDown, CreditCard, Download, Ellipsis, Heart,
@@ -72,6 +75,7 @@ const saveDailyMotivationQuote = (quote: MotivationQuote) => {
   catch { /* Daily display still works for this session. */ }
 }
 async function requestApiQuote(): Promise<MotivationQuote | null> {
+  if (Capacitor.isNativePlatform()) return null // Android uses the bundled quotes; /api is hosted only on the web.
   const response = await fetch('/api/quote?language=es', { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
   if (!response.ok) throw new Error('No se pudo consultar la API de frases.')
   const result: unknown = await response.json()
@@ -193,6 +197,10 @@ function AuthScreen({ preview = false, onOpenDemo }: { preview?: boolean; onOpen
   }
   const signInWithGoogle = async () => {
     if (!firebaseAuth || busy) return
+    if (Capacitor.isNativePlatform()) {
+      setMessage({ kind: 'error', text: 'El acceso con Google en Android está pendiente de configuración. Por ahora, usa una cuenta con correo y contraseña.' })
+      return
+    }
     setBusy(true)
     setMessage(null)
     try {
@@ -407,9 +415,17 @@ function App() {
     setData(next)
     if (firebaseConfigured) setSyncStatus('pending')
   }
-  const exportData = () => {
+  const exportData = async () => {
     if (!dataRef.current) return
-    const url = URL.createObjectURL(new Blob([JSON.stringify(dataRef.current, null, 2)], { type: 'application/json' }))
+    const json = JSON.stringify(dataRef.current, null, 2)
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const file = await Filesystem.writeFile({ path: `exports/miser-${isoDate(new Date())}-${id()}.json`, data: json, directory: Directory.Cache, encoding: Encoding.UTF8, recursive: true })
+        await Share.share({ title: 'Copia de MiSer', files: [file.uri], dialogTitle: 'Guardar o compartir copia' })
+      } catch { showToast('No se completó la exportación. Tus datos siguen en MiSer; vuelve a intentarlo.') }
+      return
+    }
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = `miser-${isoDate(new Date())}.json`
