@@ -97,9 +97,8 @@ jobs:
           assert.ok(client.oauth_client.some(c => c.client_type === 1 && c.android_info.package_name === capacitor.appId && c.android_info.certificate_hash.toLowerCase() === process.argv[2]), 'La SHA-1 OAuth no coincide con la firma de la APK');
           const webClient = client.oauth_client.find(c => c.client_type === 3);
           assert.ok(webClient, 'Falta el cliente OAuth web para obtener el ID token de Google');
-          const resources = fs.readFileSync('android/app/build/generated/res/google-services/debug/values/values.xml', 'utf8');
-          assert.ok(resources.includes(webClient.client_id), 'No se generó el cliente OAuth para Google');
-          assert.ok(resources.includes(client.client_info.mobilesdk_app_id), 'No se generó la configuración Firebase Android');
+          const generatedResources = fs.globSync('android/app/build/generated/res/**/values.xml').map(path => fs.readFileSync(path, 'utf8'));
+          assert.ok(generatedResources.some(xml => xml.includes(webClient.client_id) && xml.includes(client.client_info.mobilesdk_app_id)), 'No se generó la configuración Firebase y OAuth Android');
           NODE
           (cd artifacts && sha256sum MiSer.apk > MiSer.apk.sha256)
           echo 'APK de pruebas con Google nativo integrado. Firebase, clientes OAuth y firma estable verificados; prueba el acceso en un teléfono.' >> "$GITHUB_STEP_SUMMARY"
