@@ -1,0 +1,41 @@
+{
+  "project_info": {
+    "project_number": "743086146550",
+    "project_id": "miser-b47b0",
+    "storage_bucket": "miser-b47b0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:743086146550:android:f4130710535df1604b7dd7",
+        "android_client_info": { "package_name": "com.miser.finanzas" }
+      },
+      "oauth_client": [
+        {
+          "client_id": "743086146550-75ofutgmfv730u1u860g1vdr6eegi7no.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.miser.finanzas",
+            "certificate_hash": "d284caa95641b2e0bf15d6f0224d0818ce601556"
+          }
+        },
+        {
+          "client_id": "743086146550-1rjca54penq9sb81g3nh3m8mto8viamd.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [{ "current_key": "AIzaSyANFxEXZKllY_801GBnmBVDi1ZALnhCZyo" }],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "743086146550-1rjca54penq9sb81g3nh3m8mto8viamd.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

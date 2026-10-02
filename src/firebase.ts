@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
+import { getAuth, indexedDBLocalPersistence, initializeAuth } from 'firebase/auth'
+import { Capacitor } from '@capacitor/core'
 import { getFirestore } from 'firebase/firestore'
 
 const config = {
@@ -16,7 +17,9 @@ export const firebaseConfigured = values.every(Boolean)
 export const firebaseMisconfigured = values.some(Boolean) && !firebaseConfigured
 
 const app = firebaseConfigured ? initializeApp(config) : null
-export const firebaseAuth = app ? getAuth(app) : null
+export const firebaseAuth = app ? Capacitor.isNativePlatform()
+  ? initializeAuth(app, { persistence: indexedDBLocalPersistence })
+  : getAuth(app) : null
 export const firestore = app ? getFirestore(app) : null
 
 declare global {

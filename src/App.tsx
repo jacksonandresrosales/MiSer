@@ -10,11 +10,12 @@ import {
   ShieldCheck, UserRound, Wallet, X,
 } from 'lucide-react'
 import {
-  createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, reload,
-  sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup,
+  createUserWithEmailAndPassword, onAuthStateChanged, reload,
+  sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword,
   signOut as firebaseSignOut,
 } from 'firebase/auth'
 import { firebaseAuth, firebaseConfigured, firebaseMisconfigured, firestore } from './firebase'
+import { signInWithGoogleAccount } from './googleAuth'
 import { changedRecords, flattenData, loadFinanceData, saveFinanceRecord, saveUserProfile } from './financeStore'
 import { goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney, type FinanceRecord, type RecordMap } from './financeData'
 import { demoData } from './demoData'
@@ -197,17 +198,15 @@ function AuthScreen({ preview = false, onOpenDemo }: { preview?: boolean; onOpen
   }
   const signInWithGoogle = async () => {
     if (!firebaseAuth || busy) return
-    if (Capacitor.isNativePlatform()) {
-      setMessage({ kind: 'error', text: 'El acceso con Google en Android está pendiente de configuración. Por ahora, usa una cuenta con correo y contraseña.' })
-      return
-    }
     setBusy(true)
     setMessage(null)
     try {
-      await signInWithPopup(firebaseAuth, new GoogleAuthProvider())
+      await signInWithGoogleAccount(firebaseAuth)
     } catch (error) {
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
-      if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+      const cancelled = code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'
+        || (Capacitor.isNativePlatform() && error instanceof Error && /cancel/i.test(error.message))
+      if (!cancelled) {
         const text = code === 'auth/popup-blocked' ? 'El navegador bloqueó la ventana de Google. Permite las ventanas emergentes e inténtalo de nuevo.'
           : code === 'auth/unauthorized-domain' ? 'Este dominio no está autorizado. Agrégalo en Firebase Authentication → Configuración → Dominios autorizados.'
             : code === 'auth/operation-not-allowed' ? 'Activa Google en Firebase Authentication → Proveedores de acceso.'

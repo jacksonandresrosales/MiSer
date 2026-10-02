@@ -7,13 +7,14 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test src/financeData.test.ts",
+    "test": "node --experimental-test-module-mocks --test src/financeData.test.ts src/googleAuth.test.ts",
     "preview": "vite preview",
     "android:add": "cap add android",
     "android:sync": "cap sync android",
     "android:open": "cap open android"
   },
   "dependencies": {
+    "@capacitor-firebase/authentication": "^8.5.2",
     "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "8.4.3",
     "@capacitor/core": "^8.5.2",
