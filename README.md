@@ -89,7 +89,19 @@ La configuración web de Firebase se usa en el cliente. **No agregues una cuenta
 
 Con Firebase, los datos se guardan en Cloud Firestore bajo la cuenta del usuario. La aplicación migra el formato anterior al nuevo almacenamiento por registros. En modo demo, los datos permanecen en `localStorage` y no se sincronizan con la cuenta.
 
-MiSer no se conecta a cuentas bancarias y no envía notificaciones automáticas. La configuración de Capacitor está preparada para una futura versión Android; este repositorio todavía no incluye un APK.
+MiSer no se conecta a cuentas bancarias y no envía notificaciones automáticas.
+
+## APK Android con GitHub Actions
+
+La versión React se empaqueta con Capacitor para Android 7 o posterior, sin instalar Android Studio en tu PC. En **Actions → Build Android APK**, ejecuta el workflow sobre `main` o abre la compilación automática del último cambio. Descarga el artefacto **MiSer-Android**, descomprime el ZIP e instala `MiSer.apk` en tu teléfono. Incluye el certificado y un checksum SHA-256 para comprobar la descarga.
+
+La compilación exige las seis variables `VITE_FIREBASE_*` de arriba en **Settings → Secrets and variables → Actions → Variables** (también acepta secretos del mismo nombre, con prioridad). Son configuración pública del cliente, no credenciales de administrador. Si falta alguna, el workflow falla en vez de publicar una APK demo.
+
+El secreto `ANDROID_DEBUG_KEYSTORE_BASE64` contiene la clave de firma de desarrollo en base64, protegida por GitHub Secrets. Se reutiliza en cada compilación para mantener el certificado y permitir actualizaciones. Conserva una copia privada de la clave; nunca la subas al repositorio. Una APK anterior con otra firma requiere desinstalarse antes de instalar esta: guarda tus datos primero, porque desinstalar elimina los datos locales.
+
+Esta es una **APK de pruebas**, no una versión para Google Play. Incluye perfil, finanzas, ajustes y exportación JSON mediante el diálogo nativo de compartir. La tarjeta de frases se mantiene con las frases incluidas en la aplicación.
+
+**Google en Android está pendiente.** El acceso con Google en la web sigue funcionando; el APK muestra un aviso y permite usar correo/contraseña (con correo verificado). Para completar Google, registra en Firebase una app Android con paquete `com.miser.finanzas`, agrega la huella SHA-1 de `certificado.txt` y descarga `google-services.json`. Todavía hace falta integrar el acceso nativo: añadir solo ese archivo no lo habilita.
 
 ## Tecnologías
 
