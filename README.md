@@ -101,7 +101,9 @@ El secreto `ANDROID_DEBUG_KEYSTORE_BASE64` contiene la clave de firma de desarro
 
 Esta es una **APK de pruebas**, no una versión para Google Play. Incluye perfil, finanzas, ajustes y exportación JSON mediante el diálogo nativo de compartir. La tarjeta de frases se mantiene con las frases incluidas en la aplicación.
 
-**Google en Android está pendiente.** El acceso con Google en la web sigue funcionando; el APK muestra un aviso y permite usar correo/contraseña (con correo verificado). Para completar Google, registra en Firebase una app Android con paquete `com.miser.finanzas`, agrega la huella SHA-1 de `certificado.txt` y descarga `google-services.json`. Todavía hace falta integrar el acceso nativo: añadir solo ese archivo no lo habilita.
+**Google en Android:** el botón abre el selector nativo de cuentas y usa su credencial para iniciar la misma sesión de Firebase que gestiona los datos de la app. En la web mantiene la ventana de Google. Android conserva la sesión al reiniciar mediante IndexedDB; no crea una segunda sesión de Firebase nativa.
+
+`android/app/google-services.json` contiene la configuración pública de la app `com.miser.finanzas`, el cliente OAuth web y la SHA-1 de la firma estable registrada en Firebase. GitHub comprueba que el proyecto y la firma coincidan antes de publicar la APK. Si cambias la firma o publicas en Google Play, registra también el certificado correspondiente en Firebase y actualiza ese archivo. El flujo completo con una cuenta real debe probarse en un teléfono con servicios de Google Play.
 
 ## Tecnologías
 
