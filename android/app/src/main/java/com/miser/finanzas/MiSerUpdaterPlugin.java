@@ -145,8 +145,8 @@ public class MiSerUpdaterPlugin extends Plugin {
             Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
             Intent intent = new Intent(Intent.ACTION_VIEW)
                 .setDataAndType(uri, "application/vnd.android.package-archive")
-                .setClipData(ClipData.newRawUri("MiSer APK", uri))
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.setClipData(ClipData.newRawUri("MiSer APK", uri));
             getActivity().startActivity(intent);
             opened = true;
             // This confirms only that Android's installer UI opened, never that installation succeeded.
