@@ -1,0 +1,12 @@
+.android-update-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 24px; background: #ebe5fb; color: #32274d; border-bottom: 1px solid #c6badd; }
+.android-update-notice > div { flex: 1 1 240px; min-width: 0; }
+.android-update-notice p { margin: 6px 0 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.android-update-notice .icon-button { color: inherit; min-height: 48px; min-width: 48px; }
+.android-update-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 18px; }
+.android-update-settings > p { line-height: 1.6; overflow-wrap: anywhere; }
+html[data-theme="dark"] .android-update-notice { background: #302943; color: #f1edfa; border-color: #524568; }
+@media (max-width: 820px) {
+  .android-update-notice { padding: 16px; }
+  .android-update-notice .btn { min-height: 48px; }
+  .android-update-actions > .btn { flex: 1 1 200px; white-space: normal; }
+}

@@ -1,5 +1,12 @@
 package com.miser.finanzas;
 
+import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
 
-public class MainActivity extends BridgeActivity {}
+public class MainActivity extends BridgeActivity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        registerPlugin(MiSerUpdaterPlugin.class);
+        super.onCreate(savedInstanceState);
+    }
+}

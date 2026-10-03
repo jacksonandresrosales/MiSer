@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Capacitor } from '@capacitor/core'
+import { App as NativeApp } from '@capacitor/app'
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
 import {
-  ArrowDownLeft, ArrowLeft, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check,
-  CheckCircle2, ChevronDown, CreditCard, Download, Ellipsis, Heart,
-  ExternalLink, Eye, EyeOff, ImagePlus, LayoutDashboard, Link2, ListChecks, LogOut, Menu, Pencil,
+  ArrowDownLeft, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check,
+  CheckCircle2, CreditCard, Download, Ellipsis, Heart,
+  ExternalLink, Eye, EyeOff, ImagePlus, LayoutDashboard, LogOut, Menu, Pencil,
   Moon, Plus, Quote, RefreshCw, Search, Settings, ShoppingBag, Sparkles, Sun, Target,
   ShieldCheck, UserRound, Wallet, X,
 } from 'lucide-react'
@@ -17,12 +18,19 @@ import {
 import { firebaseAuth, firebaseConfigured, firebaseMisconfigured, firestore } from './firebase'
 import { signInWithGoogleAccount } from './googleAuth'
 import { changedRecords, flattenData, loadFinanceData, saveFinanceRecord, saveUserProfile } from './financeStore'
-import { goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney, summarizeBalance, type FinanceRecord, type RecordMap } from './financeData'
+import { goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney, summarizeBalance, type RecordMap } from './financeData'
 import { demoData } from './demoData'
 import { philosophyQuotes } from './quotes'
 import type { AnnualGoal, Budget, CalendarEvent, FinanceData, ShoppingItem, ShoppingList, Transaction } from './types'
 import { defaultPreferences, parsePreferences, parseProfile, profileInitials, profilePhotoSrc, validateProfile, type Preferences, type UserProfile } from './userProfile'
+import { backDestination } from './mobileNavigation'
+import { nextLocalQuoteIndex } from './quoteRotation'
+import { readFinanceCache, readPendingChanges, writeFinanceCache } from './financeCache'
+import CalendarPage from './CalendarPage'
+import ShoppingPage from './ShoppingPage'
+import { AndroidUpdatesProvider, AndroidUpdateSettings } from './AndroidUpdates'
 import './MiSer.css'
+import './mobile-ux.css'
 
 type Page = 'overview' | 'activity' | 'calendar' | 'goals' | 'shopping' | 'settings'
 type Modal = { kind: 'transaction'; item?: Transaction } | { kind: 'event'; item?: CalendarEvent; date?: string } | { kind: 'goal'; item?: AnnualGoal } | { kind: 'list'; item?: ShoppingList } | { kind: 'shoppingItem'; listId: string; item?: ShoppingItem } | { kind: 'budget'; item?: Budget } | null
@@ -31,7 +39,6 @@ type MotivationQuote = { text: string; author: string; work?: string; source: st
 
 const currency = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
 const shortDate = (value: string) => new Intl.DateTimeFormat('es-EC', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`))
-const longDate = (value: Date) => new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }).format(value)
 const monthId = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 const id = () => crypto.randomUUID()
@@ -93,7 +100,6 @@ const webUrl = (value: string) => {
   } catch { return null }
 }
 const shoppingImageSrc = (value?: string) => value?.startsWith('data:image/jpeg;base64,') ? value : value ? webUrl(value) : null
-const linkLabel = (value: string) => new URL(value).hostname.replace(/^www\./, '')
 
 async function compressImage(file: File, avatar = false): Promise<string> {
   if (!/^image\/(jpeg|png|webp|avif)$/.test(file.type)) throw new Error('Usa una imagen JPG, PNG, WebP o AVIF.')
@@ -286,6 +292,7 @@ function App() {
   const [modal, setModal] = useState<Modal>(null)
   const [toast, setToast] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [offlineSince, setOfflineSince] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const userId = session?.user.id
   const dataRef = useRef(data)
@@ -293,6 +300,45 @@ function App() {
   const versions = useRef(new Map<string, number>())
   const expectedVersions = useRef(new Map<string, number>())
   const flushing = useRef(false)
+  const modalOpener = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') return
+    const listener = NativeApp.addListener('backButton', () => {
+      switch (backDestination({ modal: !!modal, menu: menuOpen, page })) {
+        case 'modal': window.dispatchEvent(new Event('miser-close-modal')); break
+        case 'menu': setMenuOpen(false); break
+        case 'overview': setPage('overview'); break
+        case 'exit': void NativeApp.exitApp(); break
+      }
+    })
+    return () => { void listener.then(handle => handle.remove()) }
+  }, [modal, menuOpen, page])
+
+  useEffect(() => {
+    if (!menuOpen && !modal) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
+  }, [menuOpen, modal])
+
+  useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }) }, [page])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const sidebar = document.querySelector<HTMLElement>('.sidebar')
+    sidebar?.querySelector<HTMLElement>('.close-menu')?.focus()
+    const handleKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setMenuOpen(false) }
+      if (event.key !== 'Tab') return
+      const buttons = [...sidebar?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []]
+      if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons.at(-1)?.focus() }
+      else if (!event.shiftKey && document.activeElement === buttons.at(-1)) { event.preventDefault(); buttons[0]?.focus() }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => { document.removeEventListener('keydown', handleKey); opener?.focus() }
+  }, [menuOpen])
 
   useEffect(() => {
     if (!firebaseAuth) return
@@ -313,18 +359,18 @@ function App() {
     setLoadError('')
     loadFinanceData(db, userId).then(result => {
       if (!active) return
+      writeFinanceCache(userId, result)
+      setOfflineSince(null)
       remoteRecords.current = result.records
       versions.current = result.versions
       expectedVersions.current = new Map()
       const restored = new Map(result.records)
-      try {
-        const pending = JSON.parse(localStorage.getItem(`miser-pending-${userId}`) ?? 'null') as { changes?: [string, FinanceRecord | null, number][] } | null
-        for (const [key, record, version] of pending?.changes ?? []) {
+        for (const [key, record, version] of readPendingChanges(userId)) {
+          if (JSON.stringify(record?.value) === JSON.stringify(result.records.get(key)?.value)) continue
           if (record) restored.set(key, record)
           else restored.delete(key)
           expectedVersions.current.set(key, version)
         }
-      } catch { /* Invalid local recovery data is ignored; cloud data stays untouched. */ }
       const restoredData = inflateRecords(restored)
       dataRef.current = restoredData
       setData(restoredData)
@@ -336,6 +382,23 @@ function App() {
     }).catch((error: unknown) => {
       if (!active) return
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+      const cache = code !== 'permission-denied' && code !== 'unauthenticated' && (code === 'unavailable' || !navigator.onLine) ? readFinanceCache(userId) : null
+      if (cache) {
+        const recovered = new Map(cache.records)
+        for (const [key, record] of readPendingChanges(userId)) {
+          if (record) recovered.set(key, record)
+          else recovered.delete(key)
+        }
+        dataRef.current = inflateRecords(recovered)
+        setData(dataRef.current)
+        if (cache.profile) setProfile(cache.profile)
+        setOfflineSince(cache.cachedAt)
+        setLoadedUserId(userId)
+        setLoaded(true)
+        setSyncStatus('error')
+        setSyncMessage('Sin conexión. Consulta o exporta tu copia local; reconecta antes de editar.')
+        return
+      }
       setLoadError(code === 'permission-denied'
         ? 'Firestore denegó el acceso. Publica las reglas actualizadas de firestore.rules en Firebase Console → Firestore → Reglas y comprueba que tu correo esté verificado.'
         : code === 'unavailable' ? 'Firestore no está disponible. Revisa tu conexión e inténtalo de nuevo.'
@@ -345,7 +408,7 @@ function App() {
   }, [userId, session?.user.verified, loadAttempt])
 
   useEffect(() => {
-    if (!data || !loaded) return
+    if (!data || !loaded || offlineSince) return
     if (!firebaseConfigured) {
       try { localStorage.setItem(demoStorageKey, JSON.stringify(data)) }
       catch { showToast('No hay espacio suficiente en este navegador para guardar los cambios.') }
@@ -364,25 +427,43 @@ function App() {
       setSyncStatus('saving')
       try {
         while (dataRef.current) {
+          if (firebaseAuth?.currentUser?.uid !== userId) return
           const next = changedRecords(remoteRecords.current, flattenData(dataRef.current))[0]
           if (!next) break
           const [key, record] = next
           const version = await saveFinanceRecord(db, userId, key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0)
+          if (firebaseAuth?.currentUser?.uid !== userId) return
           if (record) remoteRecords.current.set(key, record)
           else remoteRecords.current.delete(key)
           versions.current.set(key, version)
           expectedVersions.current.delete(key)
         }
         localStorage.removeItem(`miser-pending-${userId}`)
+        writeFinanceCache(userId, { records: remoteRecords.current, versions: versions.current, profile })
         setSyncStatus('saved')
         setSyncMessage('')
       } catch (error) {
         setSyncStatus('error')
         setSyncMessage(error instanceof Error && error.message === 'conflict' ? 'Otro dispositivo cambió el mismo registro. Exporta tus datos y recarga antes de continuar.' : 'No se pudieron guardar todos los cambios. Revisa tu conexión y vuelve a intentar.')
-      } finally { flushing.current = false }
+      } finally {
+        if (firebaseAuth?.currentUser?.uid === userId && dataRef.current) {
+          const remaining = changedRecords(remoteRecords.current, flattenData(dataRef.current))
+          try {
+            if (remaining.length) localStorage.setItem(`miser-pending-${userId}`, JSON.stringify({ uid: userId, changes: remaining.map(([key, record]) => [key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0]) }))
+          } catch { setSyncMessage('Exporta tus datos antes de cerrar: no se pudo conservar la recuperación local.') }
+        }
+        flushing.current = false
+      }
     }, 450)
     return () => window.clearTimeout(timer)
-  }, [data, loaded, userId, loadedUserId, saveAttempt])
+  }, [data, loaded, userId, loadedUserId, saveAttempt, offlineSince, profile])
+
+  useEffect(() => {
+    if (!offlineSince) return
+    const reconnect = () => setLoadAttempt(value => value + 1)
+    window.addEventListener('online', reconnect)
+    return () => window.removeEventListener('online', reconnect)
+  }, [offlineSince])
 
   useEffect(() => {
     if (!toast) return
@@ -408,18 +489,18 @@ function App() {
   const expenses = sumMoney(monthTransactions.filter(t => t.type === 'expense').map(t => t.amount))
 
   const modify = (fn: (old: FinanceData) => FinanceData) => {
+    if (offlineSince) { showToast('Estás viendo una copia local. Reconecta antes de editar.'); return }
     if (!dataRef.current) return
     const next = fn(dataRef.current)
     dataRef.current = next
     setData(next)
     if (firebaseConfigured) setSyncStatus('pending')
   }
-  const exportData = async () => {
-    if (!dataRef.current) return
-    const json = JSON.stringify(dataRef.current, null, 2)
+  const exportPayload = async (payload: unknown, prefix = 'miser') => {
+    const json = JSON.stringify(payload, null, 2)
     if (Capacitor.isNativePlatform()) {
       try {
-        const file = await Filesystem.writeFile({ path: `exports/miser-${isoDate(new Date())}-${id()}.json`, data: json, directory: Directory.Cache, encoding: Encoding.UTF8, recursive: true })
+        const file = await Filesystem.writeFile({ path: `exports/${prefix}-${isoDate(new Date())}-${id()}.json`, data: json, directory: Directory.Cache, encoding: Encoding.UTF8, recursive: true })
         await Share.share({ title: 'Copia de MiSer', files: [file.uri], dialogTitle: 'Guardar o compartir copia' })
       } catch { showToast('No se completó la exportación. Tus datos siguen en MiSer; vuelve a intentarlo.') }
       return
@@ -427,9 +508,18 @@ function App() {
     const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `miser-${isoDate(new Date())}.json`
+    anchor.download = `${prefix}-${isoDate(new Date())}.json`
     anchor.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+  const exportData = () => dataRef.current && exportPayload(dataRef.current)
+  const exportRecovery = async () => {
+    if (!userId) return
+    let pendingRaw: string | null = null
+    try { pendingRaw = localStorage.getItem(`miser-pending-${userId}`) } catch { /* Export any valid cache that is still accessible. */ }
+    const cache = readFinanceCache(userId)
+    if (!cache && !pendingRaw) { showToast('No hay una copia de recuperación en este dispositivo.'); return }
+    await exportPayload({ uid: userId, exportedAt: new Date().toISOString(), cachedData: cache?.data ?? null, cachedAt: cache?.cachedAt ?? null, changes: readPendingChanges(userId), pendingRaw }, 'miser-recuperacion')
   }
   const confirmDelete = (label: string, action: () => void) => { if (window.confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)) action() }
   const signOut = async () => {
@@ -439,11 +529,14 @@ function App() {
   }
   const leaveDemo = () => { setDemoEntryOpen(true); setPage('overview'); setMenuOpen(false); setModal(null) }
   const saveProfile = async (draft: UserProfile) => {
+    if (offlineSince) throw new Error('Reconecta antes de editar tu perfil.')
     const next = validateProfile(draft)
     if (firebaseConfigured) {
       if (!firestore || !userId || firebaseAuth?.currentUser?.uid !== userId || loadedUserId !== userId) throw new Error('Tu sesión cambió. Vuelve a iniciar sesión antes de guardar.')
       await saveUserProfile(firestore, userId, next)
       if (firebaseAuth.currentUser?.uid !== userId) throw new Error('El perfil se guardó, pero tu sesión cambió. Vuelve a iniciar sesión.')
+      const cache = readFinanceCache(userId)
+      if (cache) writeFinanceCache(userId, { ...cache, profile: next })
     } else {
       try { localStorage.setItem(demoProfileKey, JSON.stringify(next)) }
       catch { throw new Error('No hay espacio para guardar el perfil en este navegador. Prueba con una foto más pequeña.') }
@@ -475,37 +568,45 @@ function App() {
    if (firebaseConfigured && !session) return <AuthScreen />
    if (firebaseConfigured && session && !session.user.verified) return <VerifyEmailScreen email={session.user.email ?? ''} onVerified={() => setSession({ user: { ...session.user, verified: true } })} onLogout={signOut} />
   if (demoEntryOpen) return <AuthScreen preview onOpenDemo={() => setDemoEntryOpen(false)} />
-  if (firebaseConfigured && loadError) return <main className="load-error-screen"><div className="load-error-card"><BrandMark /><h1>No pudimos abrir tu espacio</h1><p>{loadError} Tus datos no se han reemplazado.</p><div className="load-error-actions"><button className="btn btn-primary" onClick={() => setLoadAttempt(value => value + 1)}>Intentar de nuevo</button><button className="btn btn-soft" onClick={signOut}>Cerrar sesión</button></div></div></main>
+  if (firebaseConfigured && loadError) return <main className="load-error-screen"><div className="load-error-card"><BrandMark /><h1>No pudimos abrir tu espacio</h1><p>{loadError} Tus datos no se han reemplazado.</p>{toast && <p role="status">{toast}</p>}<div className="load-error-actions"><button className="btn btn-primary" onClick={() => setLoadAttempt(value => value + 1)}>Intentar de nuevo</button><button className="btn btn-soft" onClick={() => void exportRecovery()}>Exportar recuperación local</button><button className="btn btn-soft" onClick={signOut}>Cerrar sesión</button></div></div></main>
   if (!data || !loaded || (firebaseConfigured && loadedUserId !== userId)) return <div className="loading-screen"><BrandMark /><span>Cargando tu espacio…</span></div>
 
   const title = navItems.find(item => item.id === page)?.label ?? 'Ajustes'
   const isDemo = !firebaseConfigured
-  return <div className="app-shell">
-    <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
+  const reminders = data.events.filter(event => event.remind && event.date >= isoDate(today)).length
+  const openModal = (next: Exclude<Modal, null>) => {
+    if (offlineSince) { showToast('Reconecta para editar. Puedes consultar y exportar tu copia local.'); return }
+    modalOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setModal(next)
+  }
+  const closeModal = () => { setModal(null); requestAnimationFrame(() => modalOpener.current?.focus()) }
+  return <div className={`app-shell ${page === 'overview' ? 'on-overview' : ''}`}>
+    <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`} inert={!!modal}>
       <div className="sidebar-brand"><BrandMark /><span>MiSer</span><button className="icon-button close-menu" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú"><X size={18} /></button></div>
-      <div className="sidebar-label">ESPACIO PERSONAL</div>
-      <nav className="main-nav">{navItems.map(item => { const Icon = item.id === 'activity' ? Wallet : item.id === 'shopping' ? ListChecks : item.icon; return <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => { setPage(item.id); setMenuOpen(false) }}><Icon size={18} strokeWidth={1.8} /><span>{item.id === 'activity' ? 'Finanzas' : item.id === 'goals' ? 'Objetivos' : item.id === 'shopping' ? 'Compras' : item.label}</span>{item.id === 'shopping' && <span className="nav-count">{data.lists.length}</span>}</button>})}</nav>
+      <nav className="main-nav" aria-label="Secciones">{navItems.map(item => { const Icon = item.icon; return <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => { setPage(item.id); setMenuOpen(false) }}><Icon size={18} strokeWidth={1.8} /><span>{item.id === 'goals' ? 'Objetivos' : item.id === 'shopping' ? 'Compras' : item.label}</span>{item.id === 'shopping' && <span className="nav-count">{data.lists.length}</span>}</button>})}</nav>
       <div className="sidebar-bottom"><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => { setPage('settings'); setMenuOpen(false) }}><Settings size={18} strokeWidth={1.8} /><span>Ajustes</span></button><div className="profile"><ProfileAvatar profile={profile} /><span className="profile-name">{profile.displayName}</span>{isDemo ? <button className="demo-exit" onClick={leaveDemo}><LogOut size={14} /> Salir</button> : <button className="icon-button" onClick={signOut} aria-label="Cerrar sesión"><LogOut size={16} /></button>}</div></div>
     </aside>
     {menuOpen && <button className="sidebar-scrim" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />}
-    <main className="main-content">
-      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Abrir menú"><Menu size={20} /></button><div className="breadcrumb"><span>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }).format(today)}</span><strong>{page === 'overview' ? 'Hola, qué bueno verte ✦' : title}</strong></div><div className="topbar-actions"><button className="icon-button notification-button" onClick={() => { setPage('calendar'); showToast('Aquí verás tus eventos y próximos pagos.') }} aria-label="Ver recordatorios"><Bell size={18} /><i /></button><button className="icon-button theme-quick-toggle" type="button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'} title={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button><button className="top-profile-button" type="button" onClick={() => { setPage('settings'); setMenuOpen(false) }} aria-label={`Editar perfil de ${profile.displayName}`}><ProfileAvatar profile={profile} className="top-avatar" /><span className="profile-name top-profile-name">{profile.displayName}</span></button></div></header>
+    <main className="main-content" inert={menuOpen || !!modal}>
+      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Abrir menú" aria-expanded={menuOpen}><Menu size={20} /></button><div className="breadcrumb"><span>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }).format(today)}</span><strong>{page === 'overview' ? 'Hola, qué bueno verte ✦' : title}</strong></div><div className="topbar-actions"><button className="icon-button notification-button" onClick={() => { setPage('calendar'); showToast(reminders ? `${reminders} recordatorios próximos en tu agenda. No son notificaciones del teléfono.` : 'No tienes recordatorios próximos.') }} aria-label={`Ver agenda: ${reminders} recordatorios próximos`}><Bell size={18} />{reminders > 0 && <i />}</button><button className="icon-button theme-quick-toggle" type="button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'} title={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button><button className="top-profile-button" type="button" onClick={() => { setPage('settings'); setMenuOpen(false) }} aria-label={`Editar perfil de ${profile.displayName}`}><ProfileAvatar profile={profile} className="top-avatar" /><span className="profile-name top-profile-name">{profile.displayName}</span></button></div></header>
       {isDemo && <div className="demo-banner"><span><Sparkles size={14} /> Estás explorando el modo de demostración. Tus cambios se guardan solo en este navegador.</span><button onClick={leaveDemo}>Ver acceso <ArrowRight size={13} /></button></div>}
+      {offlineSince && <div className="sync-banner offline-banner" role="status"><span>Copia local del {new Intl.DateTimeFormat('es-EC', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(offlineSince))}. Solo consulta; los cambios pendientes se conservan.</span><div><button onClick={() => setLoadAttempt(value => value + 1)}>Reconectar</button><button onClick={() => void exportData()}>Exportar copia</button></div></div>}
       {!isDemo && syncStatus !== 'saved' && <div className={`sync-banner ${syncStatus === 'error' ? 'sync-banner-error' : ''}`} role={syncStatus === 'error' ? 'alert' : 'status'}><span>{syncStatus === 'error' ? syncMessage : syncStatus === 'saving' ? 'Guardando cambios…' : 'Cambios pendientes de guardar…'}</span>{syncStatus === 'error' && <div><button onClick={() => setSaveAttempt(value => value + 1)}>Reintentar</button><button onClick={exportData}>Exportar copia</button></div>}</div>}
-      {page === 'overview' && <Overview data={data} expenses={expenses} currentMonth={currentMonth} onAdd={() => setModal({ kind: 'transaction' })} onEditTransaction={item => setModal({ kind: 'transaction', item })} onNavigate={setPage} />}
-      {page === 'activity' && <Activity data={data} query={search} setQuery={setSearch} onAdd={() => setModal({ kind: 'transaction' })} onEdit={item => setModal({ kind: 'transaction', item })} onDelete={deleteTransaction} />}
-       {page === 'calendar' && <CalendarPage data={data} onAdd={date => setModal({ kind: 'event', date })} onEdit={item => setModal({ kind: 'event', item })} onDelete={deleteEvent} />}
-       {page === 'goals' && <GoalsPage data={data} onAdd={() => setModal({ kind: 'goal' })} onEdit={item => setModal({ kind: 'goal', item })} onToggle={item => saveGoal({ ...item, completed: !goalCompleted(item) })} onDelete={deleteGoal} />}
-      {page === 'shopping' && <ShoppingPage data={data} modify={modify} onAdd={() => setModal({ kind: 'list' })} onEdit={item => setModal({ kind: 'list', item })} onDelete={deleteList} onAddItem={listId => setModal({ kind: 'shoppingItem', listId })} onEditItem={(listId, item) => setModal({ kind: 'shoppingItem', listId, item })} />}
-       {page === 'settings' && <SettingsPage key={userId ?? 'demo'} isDemo={isDemo} email={session?.user.email ?? ''} profile={profile} onSaveProfile={saveProfile} preferences={preferences} onPreferencesChange={changePreferences} passwordAccount={session?.user.passwordAccount ?? false} onPasswordChange={requestPasswordChange} syncStatus={syncStatus} syncMessage={syncMessage} onRetry={() => setSaveAttempt(value => value + 1)} onExport={exportData} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => setModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} onExitDemo={leaveDemo} />}
+      {page === 'overview' && <Overview data={data} expenses={expenses} currentMonth={currentMonth} onAdd={() => openModal({ kind: 'transaction' })} onEditTransaction={item => openModal({ kind: 'transaction', item })} onNavigate={setPage} />}
+      {page === 'activity' && <Activity data={data} query={search} setQuery={setSearch} onAdd={() => openModal({ kind: 'transaction' })} onEdit={item => openModal({ kind: 'transaction', item })} onDelete={deleteTransaction} />}
+       {page === 'calendar' && <CalendarPage data={data} onAdd={date => openModal({ kind: 'event', date })} onEdit={item => openModal({ kind: 'event', item })} onDelete={deleteEvent} />}
+       {page === 'goals' && <GoalsPage data={data} onAdd={() => openModal({ kind: 'goal' })} onEdit={item => openModal({ kind: 'goal', item })} onToggle={item => saveGoal({ ...item, completed: !goalCompleted(item) })} onDelete={deleteGoal} />}
+      {page === 'shopping' && <ShoppingPage data={data} modify={modify} onAdd={() => openModal({ kind: 'list' })} onEdit={item => openModal({ kind: 'list', item })} onDelete={deleteList} onAddItem={listId => openModal({ kind: 'shoppingItem', listId })} onEditItem={(listId, item) => openModal({ kind: 'shoppingItem', listId, item })} />}
+       {page === 'settings' && <SettingsPage key={userId ?? 'demo'} isDemo={isDemo} email={session?.user.email ?? ''} profile={profile} onSaveProfile={saveProfile} preferences={preferences} onPreferencesChange={changePreferences} passwordAccount={session?.user.passwordAccount ?? false} onPasswordChange={requestPasswordChange} syncStatus={syncStatus} syncMessage={syncMessage} onRetry={() => offlineSince ? setLoadAttempt(value => value + 1) : setSaveAttempt(value => value + 1)} onExport={exportData} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => openModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} onExitDemo={leaveDemo} />}
     </main>
-    {modal && <EditModal modal={modal} month={currentMonth} onClose={() => setModal(null)} onSaveTransaction={saveTransaction} onSaveEvent={saveEvent} onSaveGoal={saveGoal} onSaveList={saveList} onSaveShoppingItem={saveShoppingItem} onSaveBudget={saveBudget} />}
+    <nav className="mobile-navigation" aria-label="Navegación principal" inert={menuOpen || !!modal}>{navItems.map(item => { const Icon = item.icon; return <button type="button" key={item.id} aria-current={page === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon size={21} aria-hidden="true" /><span>{item.id === 'shopping' ? 'Compras' : item.id === 'goals' ? 'Objetivos' : item.id === 'activity' ? 'Movimientos' : item.label}</span></button> })}</nav>
+    {modal && <EditModal modal={modal} month={currentMonth} onClose={closeModal} onSaveTransaction={saveTransaction} onSaveEvent={saveEvent} onSaveGoal={saveGoal} onSaveList={saveList} onSaveShoppingItem={saveShoppingItem} onSaveBudget={saveBudget} />}
      {toast && <div className="toast" role="status"><CheckCircle2 size={17} />{toast}</div>}
   </div>
 }
 
-function PageHeading({ eyebrow, title, subtitle, action }: { eyebrow?: string; title: string; subtitle: string; action?: ReactNode }) {
-  return <div className="page-heading"><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h1>{title}</h1><p className="muted">{subtitle}</p></div>{action}</div>
+function PageHeading({ title, subtitle, action }: { eyebrow?: string; title: string; subtitle: string; action?: ReactNode }) {
+  return <div className="page-heading"><div><h1>{title}</h1><p className="muted">{subtitle}</p></div>{action}</div>
 }
 
 function Overview({ data, expenses, currentMonth, onAdd, onEditTransaction, onNavigate }: { data: FinanceData; expenses: number; currentMonth: string; onAdd: () => void; onEditTransaction: (item: Transaction) => void; onNavigate: (page: Page) => void }) {
@@ -566,7 +667,7 @@ function MotivationCard() {
       if (initial) markSeen(quote)
       let apiFailed = false
       try {
-        for (let attempt = 0; attempt < 8; attempt++) {
+        for (let attempt = 0; !Capacitor.isNativePlatform() && attempt < 3; attempt++) {
           const candidate = await requestApiQuote()
           if (!candidate) continue
           const key = quoteIdentity(candidate)
@@ -574,12 +675,15 @@ function MotivationCard() {
           markSeen(candidate); saveDailyMotivationQuote(candidate); setQuote(candidate); return
         }
       } catch { apiFailed = true }
-      const fallback = localMotivationQuotes.find(item => !seenQuotes.current.has(quoteIdentity(item)))
+      const rotation = nextLocalQuoteIndex(localMotivationQuotes.map(quoteIdentity), seenQuotes.current, quoteIdentity(quote))
+      const fallback = localMotivationQuotes[rotation.index]
+      if (rotation.reset) {
+        seenQuotes.current = new Set([quoteIdentity(quote)])
+        try { localStorage.setItem(seenMotivationQuotesKey, JSON.stringify([...seenQuotes.current])) } catch { /* Rotation still works in memory. */ }
+      }
       if (fallback) {
         markSeen(fallback); saveDailyMotivationQuote(fallback); setQuote(fallback)
-        setMessage(apiFailed ? 'La API no respondió; usamos una frase guardada.' : 'No llegó una frase nueva de la API; usamos una frase guardada.')
-      } else {
-        setMessage('Ya se mostraron las frases disponibles. Prueba más tarde para consultar la API de nuevo.')
+        setMessage(Capacitor.isNativePlatform() ? 'Frase de tu colección sin conexión.' : apiFailed ? 'Sin respuesta del servicio; mostramos una frase de tu colección.' : 'Frase de tu colección.')
       }
     } finally {
       inFlight.current = false
@@ -604,47 +708,26 @@ function MotivationCard() {
 }
 
 function Activity({ data, query, setQuery, onAdd, onEdit, onDelete }: { data: FinanceData; query: string; setQuery: (value: string) => void; onAdd: () => void; onEdit: (item: Transaction) => void; onDelete: (id: string) => void }) {
-  const filtered = data.transactions.filter(t => `${t.title} ${t.category}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => b.date.localeCompare(a.date))
-  const sumIn = filtered.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0)
-  const sumOut = filtered.filter(t => t.type === 'expense').reduce((a, t) => a + t.amount, 0)
-  return <div className="page-wrap"><PageHeading eyebrow="TU DINERO, MOVIMIENTO A MOVIMIENTO" title="Movimientos" subtitle="Todos tus ingresos y gastos en un mismo lugar." action={<button className="btn btn-primary" onClick={onAdd}><Plus size={17} /> Añadir movimiento</button>} /><div className="activity-stats"><div><span>Ingresos registrados</span><strong className="value-income">+{currency(sumIn)}</strong></div><div><span>Gastos registrados</span><strong>−{currency(sumOut)}</strong></div><div><span>Balance</span><strong>{currency(money(sumIn - sumOut))}</strong></div></div><section className="panel activity-panel"><div className="activity-toolbar"><div className="search-box"><Search size={16} /><input aria-label="Buscar movimiento o categoría" placeholder="Buscar movimiento o categoría" value={query} onChange={e => setQuery(e.target.value)} /></div><button className="select-button" onClick={() => setQuery('')}>Todos los movimientos <ChevronDown size={14} /></button></div>{filtered.length ? <div className="transaction-list">{filtered.map(item => <div className="activity-item" key={item.id}><TransactionRow item={item} onClick={() => onEdit(item)} /><button className="delete-mini" aria-label={`Eliminar ${item.title}` } title="Eliminar movimiento" onClick={() => onDelete(item.id)}><X size={15} /></button></div>)}</div> : <EmptyState icon={<Search size={20} />} title="No encontramos movimientos" text="Prueba otra búsqueda o añade un movimiento nuevo." />}</section><p className="page-footnote">Los movimientos son privados y se muestran según la información de tu espacio.</p></div>
+  const [limit, setLimit] = useState(50)
+  const today = isoDate(new Date())
+  const recorded = data.transactions.filter(item => item.date <= today)
+  const { balance } = summarizeBalance(data.transactions, today)
+  const sumIn = sumMoney(recorded.filter(item => item.type === 'income').map(item => item.amount))
+  const sumOut = sumMoney(recorded.filter(item => item.type === 'expense').map(item => item.amount))
+  const filtered = data.transactions.filter(item => `${item.title} ${item.category}`.toLocaleLowerCase('es').includes(query.toLocaleLowerCase('es'))).sort((a, b) => b.date.localeCompare(a.date))
+  const subtotal = sumMoney(filtered.map(item => item.type === 'income' ? item.amount : -item.amount))
+  const changeQuery = (value: string) => { setQuery(value); setLimit(50) }
+  return <div className="page-wrap">
+    <PageHeading title="Movimientos" subtitle="Tus ingresos y gastos, sin perder de vista tu saldo." action={<button className="btn btn-primary" onClick={onAdd} aria-label="Añadir movimiento"><Plus size={17} /> Añadir movimiento</button>} />
+    <div className="activity-stats"><div><span>Ingresos hasta hoy</span><strong className="value-income">+{currency(sumIn)}</strong></div><div><span>Gastos hasta hoy</span><strong>−{currency(sumOut)}</strong></div><div><span>Saldo disponible</span><strong>{currency(balance)}</strong></div></div>
+    <section className="panel activity-panel">
+      <div className="activity-toolbar"><div className="search-box"><Search size={18} /><input aria-label="Buscar movimiento o categoría" placeholder="Buscar movimiento o categoría" value={query} onChange={event => changeQuery(event.target.value)} /></div>{query && <button className="select-button" onClick={() => changeQuery('')}>Limpiar búsqueda <X size={16} /></button>}</div>
+      {query && <p className="search-subtotal" role="status">{filtered.length} resultados · Subtotal de búsqueda: {currency(subtotal)}. No cambia tu saldo disponible.</p>}
+      {filtered.length ? <><div className="transaction-list">{filtered.slice(0, limit).map(item => <div className="activity-item" key={item.id}><div className="activity-row-copy"><TransactionRow item={item} onClick={() => onEdit(item)} />{item.date > today && <span className="future-label">Programado · aún no incluido en tu saldo</span>}</div><button className="delete-mini" aria-label={`Eliminar ${item.title}`} onClick={() => onDelete(item.id)}><X size={18} /></button></div>)}</div>{filtered.length > limit && <button className="btn btn-soft full" onClick={() => setLimit(value => value + 50)}>Ver más movimientos ({filtered.length - limit})</button>}</> : <EmptyState icon={<Search size={20} />} title="No encontramos movimientos" text="Prueba otra búsqueda o añade un movimiento nuevo." />}
+    </section><p className="page-footnote">El saldo incluye todos los movimientos hasta hoy. Los programados aparecen en la lista, pero todavía no cuentan.</p>
+  </div>
 }
 
-function CalendarPage({ data, onAdd, onEdit, onDelete }: { data: FinanceData; onAdd: (date: string) => void; onEdit: (item: CalendarEvent) => void; onDelete: (id: string) => void }) {
-  const [view, setView] = useState<'week' | 'month'>('week')
-  const [anchor, setAnchor] = useState(isoDate(new Date()))
-  const [selected, setSelected] = useState(isoDate(new Date()))
-  const today = new Date()
-  const anchorDate = new Date(`${anchor}T12:00:00`)
-  const monday = new Date(anchorDate)
-  monday.setDate(anchorDate.getDate() - ((anchorDate.getDay() + 6) % 7))
-  const days = Array.from({ length: 7 }, (_, index) => { const date = new Date(monday); date.setDate(monday.getDate() + index); return date })
-  const firstOfMonth = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1, 12)
-  const monthGridStart = new Date(firstOfMonth)
-  monthGridStart.setDate(1 - ((firstOfMonth.getDay() + 6) % 7))
-  const monthGridLength = Math.ceil((((firstOfMonth.getDay() + 6) % 7) + new Date(firstOfMonth.getFullYear(), firstOfMonth.getMonth() + 1, 0).getDate()) / 7) * 7
-  const monthDays = Array.from({ length: monthGridLength }, (_, index) => { const date = new Date(monthGridStart); date.setDate(monthGridStart.getDate() + index); return date })
-  const selectedEvents = data.events.filter(event => event.date === selected).sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''))
-  const upcoming = data.events.filter(event => event.date >= isoDate(today)).sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? '')).slice(0, 5)
-  const range = `${new Intl.DateTimeFormat('es-EC', { day: 'numeric', month: 'short' }).format(days[0])} — ${new Intl.DateTimeFormat('es-EC', { day: 'numeric', month: 'short', year: 'numeric' }).format(days[6])}`
-  const monthLabel = new Intl.DateTimeFormat('es-EC', { month: 'long', year: 'numeric' }).format(firstOfMonth)
-  const changeView = (nextView: 'week' | 'month') => { setView(nextView); setAnchor(selected) }
-  const navigate = (direction: number) => {
-    const next = view === 'month'
-      ? new Date(anchorDate.getFullYear(), anchorDate.getMonth() + direction, 1, 12)
-      : new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate() + direction * 7, 12)
-    const key = isoDate(next)
-    setAnchor(key)
-    setSelected(key)
-  }
-   return <div className="page-wrap"><PageHeading eyebrow="FECHAS IMPORTANTES" title="Tu calendario" subtitle="Ten a la vista los eventos y pagos que vienen." action={<button className="btn btn-primary" onClick={() => onAdd(selected)}><Plus size={17}/> Añadir evento</button>} />
-    <div className="calendar-week-toolbar"><div><span className="eyebrow">TU AGENDA</span><h2 className={view === 'month' ? 'month-heading' : undefined}>{view === 'month' ? `${monthLabel[0].toUpperCase()}${monthLabel.slice(1)}` : range}</h2></div><div className="calendar-toolbar-actions"><div className="calendar-view-toggle" role="group" aria-label="Vista del calendario"><button type="button" className={view === 'week' ? 'active' : ''} aria-pressed={view === 'week'} onClick={() => changeView('week')}>Semana</button><button type="button" className={view === 'month' ? 'active' : ''} aria-pressed={view === 'month'} onClick={() => changeView('month')}>Mes</button></div><div className="month-arrows"><button className="icon-button pale-icon" aria-label={view === 'month' ? 'Mes anterior' : 'Semana anterior'} onClick={() => navigate(-1)}><ArrowLeft size={16}/></button><button className="icon-button pale-icon" aria-label={view === 'month' ? 'Mes siguiente' : 'Semana siguiente'} onClick={() => navigate(1)}><ArrowRight size={16}/></button></div></div></div>
-    <div className={`calendar-layout ${view === 'week' ? 'weekly-calendar-layout' : 'monthly-calendar-layout'}`}><section className="panel calendar-panel">
-      {view === 'week' ? <div className="week-calendar-scroll"><div className="week-calendar">{days.map(day => { const key = isoDate(day); const dayEvents = data.events.filter(event => event.date === key).sort((a, b) => (a.time ?? '').localeCompare(b.time ?? '')); return <div className={`week-day-column ${key === selected ? 'week-day-selected' : ''} ${key === isoDate(today) ? 'week-today' : ''}`} key={key}><button className="week-day-heading" onClick={() => setSelected(key)}><span>{new Intl.DateTimeFormat('es-EC', { weekday: 'short' }).format(day).replace('.', '')}</span><strong>{day.getDate()}</strong></button><button className="week-add-day" onClick={() => { setSelected(key); onAdd(key) }} aria-label={`Añadir evento ${key}`}><Plus size={13}/></button><div className="week-events">{dayEvents.map(event => <button className={`schedule-event ${event.kind === 'payment' ? 'schedule-payment' : `schedule-${event.category ?? 'personal'}`}`} key={event.id} onClick={() => { setSelected(key); onEdit(event) }}><span>{event.time || (event.kind === 'payment' ? 'Pago' : 'Evento')}</span><strong>{event.title}</strong>{event.location && <small>{event.location}</small>}{event.kind === 'payment' && <small>{currency(event.amount ?? 0)}</small>}</button>)}</div></div> })}</div></div> : <div className="month-calendar"><div className="calendar-grid calendar-weekdays">{['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(day => <span key={day}>{day}</span>)}</div><div className="calendar-grid month-calendar-grid">{monthDays.map(day => { const key = isoDate(day); const dayEvents = data.events.filter(event => event.date === key).sort((a, b) => (a.time ?? '').localeCompare(b.time ?? '')); return <button type="button" key={key} className={`calendar-cell month-day ${monthId(day) !== monthId(firstOfMonth) ? 'month-outside' : ''} ${key === selected ? 'selected-day' : ''} ${key === isoDate(today) ? 'today-day' : ''}`} aria-pressed={key === selected} aria-label={`${longDate(day)}${dayEvents.length ? `, ${dayEvents.length} ${dayEvents.length === 1 ? 'evento' : 'eventos'}` : ', sin eventos'}`} onClick={() => { setSelected(key); if (monthId(day) !== monthId(firstOfMonth)) setAnchor(key) }}><strong className="month-day-number">{day.getDate()}</strong><span className="month-day-events">{dayEvents.slice(0, 2).map(event => <span key={event.id} className={`month-event-chip month-event-${event.kind === 'payment' ? 'payment' : event.category ?? 'personal'}`} title={event.title}>{event.title}</span>)}{dayEvents.length > 2 && <small className="month-more">+{dayEvents.length - 2} más</small>}</span><span className="month-day-dots" aria-hidden="true">{dayEvents.slice(0, 3).map(event => <i key={event.id} className={`month-dot-${event.kind === 'payment' ? 'payment' : event.category ?? 'personal'}`} />)}</span></button> })}</div></div>}
-      <div className="calendar-legend"><span><i className="legend-personal"/>Personal</span><span><i className="legend-work"/>Trabajo</span><span><i className="legend-health"/>Salud</span><span><i className="payment-dot"/>Pago</span></div></section>
-      <aside className="panel day-panel"><div className="day-panel-heading"><div><span className="eyebrow">DÍA SELECCIONADO</span><h2>{longDate(new Date(`${selected}T12:00:00`))}</h2></div><button className="icon-button pale-icon" onClick={() => onAdd(selected)} aria-label="Añadir a este día"><Plus size={17}/></button></div>{selectedEvents.length ? <div className="day-events">{selectedEvents.map(event => <div className={`day-event ${event.kind === 'payment' ? 'day-event-payment' : ''}`} key={event.id}><span className="day-event-icon">{event.kind === 'payment' ? <CreditCard size={17}/> : <CalendarDays size={17}/>}</span><span className="day-event-copy"><strong>{event.title}</strong><small>{event.time || 'Sin hora'}{event.location ? ` · ${event.location}` : ''}</small>{event.kind === 'payment' && <small>Pago · {currency(event.amount ?? 0)}</small>}{event.note && <small>{event.note}</small>}</span><button className="delete-mini" onClick={() => onEdit(event)} aria-label="Editar evento"><Ellipsis size={16}/></button><button className="delete-mini" onClick={() => onDelete(event.id)} aria-label="Eliminar evento"><X size={15}/></button></div>)}</div> : <EmptyState icon={<CalendarDays size={20}/>} title="Un día para ti" text="No hay nada agendado. Puedes dejarlo así o añadir un recordatorio."/>}<button className="btn btn-soft full" onClick={() => onAdd(selected)}><Plus size={16}/> Agregar a este día</button><div className="upcoming-month"><h3>Próximos eventos</h3>{upcoming.length ? upcoming.map(event => <button key={event.id} onClick={() => { setSelected(event.date); onEdit(event) }}><span className="upcoming-date-small">{shortDate(event.date)}</span><span>{event.title}</span><ArrowRight size={13}/></button>) : <p className="muted">Tu agenda está despejada.</p>}</div></aside>
-    </div></div>
-}
 function GoalsPage({ data, onAdd, onEdit, onToggle, onDelete }: { data: FinanceData; onAdd: () => void; onEdit: (goal: AnnualGoal) => void; onToggle: (goal: AnnualGoal) => void; onDelete: (id: string) => void }) {
   const completed = data.goals.filter(goalCompleted).length
   return <div className="page-wrap">
@@ -659,31 +742,6 @@ function GoalsPage({ data, onAdd, onEdit, onToggle, onDelete }: { data: FinanceD
   </div>
 }
 
-function ShoppingPage({ data, modify, onAdd, onEdit, onDelete, onAddItem, onEditItem }: { data: FinanceData; modify: (fn: (old: FinanceData) => FinanceData) => void; onAdd: () => void; onEdit: (list: ShoppingList) => void; onDelete: (id: string) => void; onAddItem: (listId: string) => void; onEditItem: (listId: string, item: ShoppingItem) => void }) {
-  const toggleItem = (listId: string, itemId: string) => modify(old => ({ ...old, lists: old.lists.map(list => list.id === listId ? { ...list, items: list.items.map(item => item.id === itemId ? { ...item, done: !item.done } : item) } : list) }))
-   const removeItem = (listId: string, itemId: string) => { if (window.confirm('¿Eliminar este artículo? Esta acción no se puede deshacer.')) modify(old => ({ ...old, lists: old.lists.map(list => list.id === listId ? { ...list, items: list.items.filter(item => item.id !== itemId) } : list) })) }
-  return <div className="page-wrap">
-    <PageHeading eyebrow="PARA QUE NADA SE QUEDE EN EL CARRITO" title="Listas de compras" subtitle="Guarda ideas, detalles y enlaces para cuando llegue el momento de comprar." action={<button className="btn btn-primary" onClick={onAdd}><Plus size={17} /> Nueva lista</button>} />
-    {data.lists.length ? <div className="shopping-grid">{data.lists.map((list, index) => {
-      const done = list.items.filter(item => item.done).length
-      return <article className="panel shopping-card" key={list.id}>
-        <div className="shopping-card-head"><span className={`shopping-illustration illustration-${index % 3}`}><ShoppingBag size={21} /></span><div className="shopping-list-title"><h2>{list.title}</h2><span>{list.store || 'Sin tienda'} · {done}/{list.items.length} listos</span></div><button className="icon-button pale-icon" onClick={() => onEdit(list)} aria-label={`Editar lista ${list.title}`}><Ellipsis size={18} /></button></div>
-        <div className="shopping-progress"><span style={{ width: `${list.items.length ? done / list.items.length * 100 : 0}%` }} /></div>
-        <div className="shopping-items">{list.items.map(item => {
-          const imageSrc = shoppingImageSrc(item.imageUrl)
-          return <div className={`shopping-item shopping-item-detailed ${item.done ? 'item-done' : ''}`} key={item.id}>
-            <button className={`check-circle ${item.done ? 'checked' : ''}`} onClick={() => toggleItem(list.id, item.id)} aria-label={item.done ? `Marcar ${item.name} pendiente` : `Marcar ${item.name} comprado`}>{item.done && <Check size={13} />}</button>
-            {imageSrc && <img className="shopping-item-image" src={imageSrc} alt={`Imagen de ${item.name}`} loading="lazy" />}
-            <div className="shopping-item-copy"><button className="shopping-item-name" onClick={() => onEditItem(list.id, item)}>{item.name}</button>{item.description && <p>{item.description}</p>}{(item.quantity || item.amount !== undefined) && <small>{[item.quantity, item.amount !== undefined ? currency(item.amount) : ''].filter(Boolean).join(' · ')}</small>}{item.purchaseLinks?.length ? <div className="shopping-item-links">{item.purchaseLinks.map((link, linkIndex) => { const href = webUrl(link); return href ? <a key={`${link}-${linkIndex}`} href={href} target="_blank" rel="noopener noreferrer" title={href}><Link2 size={12} /> {linkLabel(href)}</a> : null })}</div> : null}</div>
-            <button className="delete-mini" onClick={() => onEditItem(list.id, item)} aria-label={`Editar ${item.name}`}><Pencil size={14} /></button><button className="delete-mini" onClick={() => removeItem(list.id, item.id)} aria-label={`Eliminar ${item.name}`}><X size={14} /></button>
-          </div>
-        })}</div>
-        <button className="shopping-add-detail" onClick={() => onAddItem(list.id)}><Plus size={15} /> Añadir artículo con detalles</button>
-        <button className="delete-list" onClick={() => onDelete(list.id)}>Eliminar lista</button>
-      </article>
-    })}<button className="new-list-card" onClick={onAdd}><span><Plus size={20} /></span><strong>Crear otra lista</strong><small>Por tienda, ocasión o como prefieras</small></button></div> : <div className="panel"><EmptyState icon={<ListChecks size={21} />} title="Tus listas empiezan aquí" text="Crea una lista para la semana, una tienda o un proyecto." /><button className="btn btn-primary" onClick={onAdd}><Plus size={16} /> Crear lista</button></div>}
-  </div>
-}
 function SettingsPage({ isDemo, email, profile, onSaveProfile, preferences, onPreferencesChange, passwordAccount, onPasswordChange, syncStatus, syncMessage, onRetry, onExport, darkMode, onDarkModeChange, onBudget, onLogout, onExitDemo }: {
   isDemo: boolean; email: string; profile: UserProfile; onSaveProfile: (draft: UserProfile) => Promise<UserProfile>;
   preferences: Preferences; onPreferencesChange: (next: Preferences) => void; passwordAccount: boolean; onPasswordChange: () => Promise<void>;
@@ -773,9 +831,10 @@ function SettingsPage({ isDemo, email, profile, onSaveProfile, preferences, onPr
     <section className="panel settings-panel settings-preferences" aria-labelledby="preferences-heading">
       <h2 id="preferences-heading" className="settings-group-heading">Preferencias de este dispositivo</h2>
       <div className="settings-section"><div className="settings-section-icon">{darkMode ? <Moon size={18} /> : <Sun size={18} />}</div><div className="settings-copy"><h3>Modo oscuro</h3><p>Un aspecto más cómodo para ambientes con poca luz.</p></div><button className={`theme-toggle ${darkMode ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={darkMode} aria-label="Modo oscuro" onClick={() => onDarkModeChange(!darkMode)}><span /></button></div>
-      <div className="settings-section"><div className="settings-section-icon"><LayoutDashboard size={18} /></div><div className="settings-copy"><h3><label htmlFor="settings-start-page">Pantalla de inicio</label></h3><p>Elige qué ver al volver a abrir MiSer.</p></div><select id="settings-start-page" className="settings-select" value={preferences.startPage} onChange={event => onPreferencesChange({ ...preferences, startPage: parsePreferences({ startPage: event.target.value }).startPage })}><option value="overview">Resumen</option><option value="activity">Finanzas</option><option value="calendar">Calendario</option><option value="goals">Objetivos</option><option value="shopping">Compras</option></select></div>
+      <div className="settings-section"><div className="settings-section-icon"><LayoutDashboard size={18} /></div><div className="settings-copy"><h3><label htmlFor="settings-start-page">Pantalla de inicio</label></h3><p>Elige qué ver al volver a abrir MiSer.</p></div><select id="settings-start-page" className="settings-select" value={preferences.startPage} onChange={event => onPreferencesChange({ ...preferences, startPage: parsePreferences({ startPage: event.target.value }).startPage })}><option value="overview">Resumen</option><option value="activity">Movimientos</option><option value="calendar">Calendario</option><option value="goals">Objetivos</option><option value="shopping">Compras</option></select></div>
       <div className="settings-section"><div className="settings-section-icon"><Eye size={18} /></div><div className="settings-copy"><h3>Movimiento reducido</h3><p>Reduce las animaciones. También respetamos la preferencia de tu sistema.</p></div><button className={`theme-toggle ${preferences.reducedMotion ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={preferences.reducedMotion} aria-label="Movimiento reducido" onClick={() => onPreferencesChange({ ...preferences, reducedMotion: !preferences.reducedMotion })}><span /></button></div>
     </section>
+    <AndroidUpdateSettings />
     <section className="panel settings-panel settings-data" aria-labelledby="data-settings-heading">
       <h2 id="data-settings-heading" className="settings-group-heading">Tus finanzas y tus datos</h2>
       <div className="settings-section"><div className="settings-section-icon"><Wallet size={18} /></div><div className="settings-copy"><h3>Presupuesto mensual</h3><p>Configura tu límite general y los límites de cada categoría.</p></div><button className="btn btn-soft" onClick={onBudget}>Editar presupuesto</button></div>
@@ -796,9 +855,9 @@ function EditModal({ modal, month, onClose, onSaveTransaction, onSaveEvent, onSa
      return () => opener?.focus()
    }, [])
    const onDialogKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-     if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
+     if (event.key === 'Escape') { event.preventDefault(); requestClose(); return }
      if (event.key !== 'Tab' || !dialogRef.current) return
-     const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]')]
+     const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]')].filter(element => element.getClientRects().length)
      if (!focusable.length) return
      if (event.shiftKey && document.activeElement === focusable[0]) { event.preventDefault(); focusable.at(-1)?.focus() }
      else if (!event.shiftKey && document.activeElement === focusable.at(-1)) { event.preventDefault(); focusable[0].focus() }
@@ -823,6 +882,26 @@ function EditModal({ modal, month, onClose, onSaveTransaction, onSaveEvent, onSa
   const [imageBusy, setImageBusy] = useState(false)
   const [formError, setFormError] = useState('')
   const [limitsText, setLimitsText] = useState(editing && 'categoryLimits' in editing ? Object.entries(editing.categoryLimits).map(([name, value]) => `${name}: ${value}`).join(', ') : 'Comida: 350, Hogar: 600, Transporte: 100, Salud: 150')
+  const draft = JSON.stringify([title, type, amount, category, date, note, time, location, eventCategory, kind, remind, store, description, quantity, imageUrl, purchaseLinksText, limitsText])
+  const [initialDraft] = useState(draft)
+  const [discardPrompt, setDiscardPrompt] = useState(false)
+  const dirty = draft !== initialDraft
+  const requestClose = useCallback(() => {
+    if (imageBusy) { setFormError('Espera a que termine de prepararse la imagen.'); return }
+    if (discardPrompt) { setDiscardPrompt(false); return }
+    if (dirty) setDiscardPrompt(true)
+    else onClose()
+  }, [dirty, imageBusy, discardPrompt, onClose, setFormError, setDiscardPrompt])
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLElement>(discardPrompt ? '[data-keep-editing]' : 'form input, form textarea, form select')?.focus()
+  }, [discardPrompt])
+  useEffect(() => {
+    const close = () => requestClose()
+    const warn = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault() }
+    window.addEventListener('miser-close-modal', close)
+    window.addEventListener('beforeunload', warn)
+    return () => { window.removeEventListener('miser-close-modal', close); window.removeEventListener('beforeunload', warn) }
+  }, [dirty, requestClose])
   const heading = modal.kind === 'transaction' ? editing ? 'Editar movimiento' : 'Nuevo movimiento' : modal.kind === 'event' ? editing ? 'Editar en el calendario' : 'Añadir al calendario' : modal.kind === 'goal' ? editing ? 'Editar objetivo' : 'Nuevo objetivo' : modal.kind === 'list' ? editing ? 'Editar lista' : 'Nueva lista' : modal.kind === 'shoppingItem' ? editing ? 'Editar artículo' : 'Nuevo artículo' : 'Presupuesto mensual'
   const uploadImage = async (file?: File) => {
     if (!file) return
@@ -854,9 +933,9 @@ function EditModal({ modal, month, onClose, onSaveTransaction, onSaveEvent, onSa
      }
      onClose()
    }
-   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section ref={dialogRef} className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" onKeyDown={onDialogKeyDown}><div className="modal-heading"><div><span className="eyebrow">{modal.kind === 'budget' ? 'ORGANIZA TU MES' : 'TU ESPACIO PERSONAL'}</span><h2 id="modal-title">{heading}</h2></div><button className="icon-button pale-icon" onClick={onClose} aria-label="Cerrar"><X size={18} /></button></div><form className="stack-form modal-form" onSubmit={submit}>
+   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) requestClose() }}><section ref={dialogRef} className="edit-modal" role={discardPrompt ? 'alertdialog' : 'dialog'} aria-modal="true" aria-labelledby="modal-title" onKeyDown={onDialogKeyDown}><div className="modal-heading"><div><h2 id="modal-title">{discardPrompt ? 'Cambios sin guardar' : heading}</h2></div><button className="icon-button pale-icon" onClick={requestClose} aria-label="Cerrar"><X size={18} /></button></div>{discardPrompt && <div className="discard-confirmation"><p>Si cierras ahora, perderás lo que escribiste en este formulario.</p><div className="modal-actions"><button type="button" className="btn btn-soft" data-keep-editing onClick={() => setDiscardPrompt(false)}>Seguir editando</button><button type="button" className="btn btn-quiet" onClick={onClose}>Descartar cambios</button></div></div>}<form hidden={discardPrompt} className="stack-form modal-form" onSubmit={submit}>
     {modal.kind === 'transaction' && <><div className="segmented-control"><button type="button" className={type === 'expense' ? 'selected' : ''} onClick={() => setType('expense')}><ArrowUpRight size={15} /> Gasto</button><button type="button" className={type === 'income' ? 'selected income-selected' : ''} onClick={() => setType('income')}><ArrowDownLeft size={15} /> Ingreso</button></div><label>¿En qué fue?<input required value={title} onChange={e => setTitle(e.target.value)} placeholder="Ej. Supermercado" /></label><div className="form-row"><label>Monto (USD)<input type="number" step="0.01" min="0.01" required value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" /></label><label>Categoría<select value={category} onChange={e => setCategory(e.target.value)}>{['Comida', 'Hogar', 'Transporte', 'Salud', 'Educación', 'Ocio', 'Trabajo', 'Extra', 'Ahorro', 'Otro'].map(value => <option key={value}>{value}</option>)}</select></label></div><label>Fecha<input type="date" required value={date} onChange={e => setDate(e.target.value)} /></label><label>Nota <span className="optional">· opcional</span><textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Un detalle para recordar…" rows={2} /></label></>}
-    {modal.kind === 'event' && <><div className="segmented-control"><button type="button" className={kind === 'event' ? 'selected' : ''} onClick={() => setKind('event')}><CalendarDays size={15} /> Evento</button><button type="button" className={kind === 'payment' ? 'selected selected-payment' : ''} onClick={() => setKind('payment')}><CreditCard size={15} /> Pago</button></div><label>Nombre<input required value={title} onChange={e => setTitle(e.target.value)} placeholder={kind === 'payment' ? 'Ej. Pago de luz' : 'Ej. Cita médica'} /></label>{kind === 'payment' && <label>Monto (USD)<input type="number" step="0.01" min="0" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" /></label>}<div className="form-row"><label>Fecha<input type="date" required value={date} onChange={e => setDate(e.target.value)} /></label><label>Hora<input type="time" value={time} onChange={e => setTime(e.target.value)} /></label></div><div className="form-row"><label>Categoría<select value={eventCategory} onChange={e => setEventCategory(e.target.value as 'personal' | 'work' | 'health')}><option value="personal">Personal</option><option value="work">Trabajo</option><option value="health">Salud</option></select></label><label>Lugar<input value={location} onChange={e => setLocation(e.target.value)} placeholder="Opcional" /></label></div><label>Nota <span className="optional">· opcional</span><textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Añade un detalle…" rows={2} /></label><label className="check-setting"><input type="checkbox" checked={remind} onChange={e => setRemind(e.target.checked)} /><span><strong>Recordarme</strong><small>Verás este evento en tus próximos recordatorios.</small></span></label></>}
+    {modal.kind === 'event' && <><div className="segmented-control"><button type="button" className={kind === 'event' ? 'selected' : ''} onClick={() => setKind('event')}><CalendarDays size={15} /> Evento</button><button type="button" className={kind === 'payment' ? 'selected selected-payment' : ''} onClick={() => setKind('payment')}><CreditCard size={15} /> Pago</button></div><label>Nombre<input required value={title} onChange={e => setTitle(e.target.value)} placeholder={kind === 'payment' ? 'Ej. Pago de luz' : 'Ej. Cita médica'} /></label>{kind === 'payment' && <label>Monto (USD)<input type="number" step="0.01" min="0" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" /></label>}<div className="form-row"><label>Fecha<input type="date" required value={date} onChange={e => setDate(e.target.value)} /></label><label>Hora<input type="time" value={time} onChange={e => setTime(e.target.value)} /></label></div><div className="form-row"><label>Categoría<select value={eventCategory} onChange={e => setEventCategory(e.target.value as 'personal' | 'work' | 'health')}><option value="personal">Personal</option><option value="work">Trabajo</option><option value="health">Salud</option></select></label><label>Lugar<input value={location} onChange={e => setLocation(e.target.value)} placeholder="Opcional" /></label></div><label>Nota <span className="optional">· opcional</span><textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Añade un detalle…" rows={2} /></label><label className="check-setting"><input type="checkbox" checked={remind} onChange={e => setRemind(e.target.checked)} /><span><strong>Mostrar en recordatorios</strong><small>Se señalará en la campana de MiSer. No envía alertas al teléfono.</small></span></label></>}
     {modal.kind === 'goal' && <label>Tu objetivo<input required maxLength={120} value={title} onChange={e => setTitle(e.target.value)} placeholder="Ej. Mejorar mi físico" /></label>}
     {modal.kind === 'list' && <><label>Nombre de la lista<input required value={title} onChange={e => setTitle(e.target.value)} placeholder="Ej. Compra de la semana" /></label><label>Tienda o categoría <span className="optional">· opcional</span><input value={store} onChange={e => setStore(e.target.value)} placeholder="Ej. Supermercado" /></label>{editing && <p className="modal-help">Los artículos de esta lista se conservan al editarla.</p>}</>}
     {modal.kind === 'shoppingItem' && <>
@@ -868,8 +947,10 @@ function EditModal({ modal, month, onClose, onSaveTransaction, onSaveEvent, onSa
     </>}
     {modal.kind === 'budget' && <><label>Límite total del mes (USD)<input type="number" min="0" step="0.01" required value={amount} onChange={e => setAmount(e.target.value)} /></label><label>Límites por categoría <span className="optional">· separados por coma</span><textarea rows={3} value={limitsText} onChange={e => setLimitsText(e.target.value)} placeholder="Comida: 350, Hogar: 600" /></label><p className="modal-help">Escribe cada categoría como <strong>Nombre: monto</strong>. Se guardará para el mes actual.</p></>}
     {formError && <p className="shopping-form-error" role="alert">{formError}</p>}
-    <div className="modal-actions"><button type="button" className="btn btn-quiet" onClick={onClose}>Cancelar</button><button className="btn btn-primary" disabled={imageBusy}>{imageBusy ? 'Preparando imagen…' : editing ? 'Guardar cambios' : modal.kind === 'budget' ? 'Guardar presupuesto' : 'Guardar'} <Check size={15} /></button></div>
+    <div className="modal-actions"><button type="button" className="btn btn-quiet" onClick={requestClose}>Cancelar</button><button className="btn btn-primary" disabled={imageBusy}>{imageBusy ? 'Preparando imagen…' : editing ? 'Guardar cambios' : modal.kind === 'budget' ? 'Guardar presupuesto' : 'Guardar'} <Check size={15} /></button></div>
   </form></section></div>
 }
 
-export default App
+export default function MiSerApp() {
+  return <AndroidUpdatesProvider><App /></AndroidUpdatesProvider>
+}
