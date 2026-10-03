@@ -6,7 +6,7 @@ import { Share } from '@capacitor/share'
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check,
   CheckCircle2, CreditCard, Download, Ellipsis, Heart,
-  ExternalLink, Eye, EyeOff, ImagePlus, LayoutDashboard, LogOut, Menu, Pencil,
+  ExternalLink, Eye, EyeOff, ImagePlus, LayoutDashboard, LogOut, Pencil,
   Moon, Plus, Quote, RefreshCw, Search, Settings, ShoppingBag, Sparkles, Sun, Target,
   ShieldCheck, UserRound, Wallet, X,
 } from 'lucide-react'
@@ -24,6 +24,7 @@ import { philosophyQuotes } from './quotes'
 import type { AnnualGoal, Budget, CalendarEvent, FinanceData, ShoppingItem, ShoppingList, Transaction } from './types'
 import { defaultPreferences, parsePreferences, parseProfile, profileInitials, profilePhotoSrc, validateProfile, type Preferences, type UserProfile } from './userProfile'
 import { backDestination } from './mobileNavigation'
+import { useCompactLayout } from './useCompactLayout'
 import { nextLocalQuoteIndex } from './quoteRotation'
 import { readFinanceCache, readPendingChanges, writeFinanceCache } from './financeCache'
 import CalendarPage from './CalendarPage'
@@ -31,6 +32,7 @@ import ShoppingPage from './ShoppingPage'
 import { AndroidUpdatesProvider, AndroidUpdateSettings } from './AndroidUpdates'
 import './MiSer.css'
 import './mobile-ux.css'
+import './page-transitions.css'
 
 type Page = 'overview' | 'activity' | 'calendar' | 'goals' | 'shopping' | 'settings'
 type Modal = { kind: 'transaction'; item?: Transaction } | { kind: 'event'; item?: CalendarEvent; date?: string } | { kind: 'goal'; item?: AnnualGoal } | { kind: 'list'; item?: ShoppingList } | { kind: 'shoppingItem'; listId: string; item?: ShoppingItem } | { kind: 'budget'; item?: Budget } | null
@@ -291,7 +293,7 @@ function App() {
   const [syncMessage, setSyncMessage] = useState('')
   const [modal, setModal] = useState<Modal>(null)
   const [toast, setToast] = useState('')
-  const [menuOpen, setMenuOpen] = useState(false)
+  const compactLayout = useCompactLayout()
   const [offlineSince, setOfflineSince] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const userId = session?.user.id
@@ -305,40 +307,23 @@ function App() {
   useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') return
     const listener = NativeApp.addListener('backButton', () => {
-      switch (backDestination({ modal: !!modal, menu: menuOpen, page })) {
+      switch (backDestination({ modal: !!modal, page })) {
         case 'modal': window.dispatchEvent(new Event('miser-close-modal')); break
-        case 'menu': setMenuOpen(false); break
         case 'overview': setPage('overview'); break
         case 'exit': void NativeApp.exitApp(); break
       }
     })
     return () => { void listener.then(handle => handle.remove()) }
-  }, [modal, menuOpen, page])
+  }, [modal, page])
 
   useEffect(() => {
-    if (!menuOpen && !modal) return
+    if (!modal) return
     const previous = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = previous }
-  }, [menuOpen, modal])
+  }, [modal])
 
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }) }, [page])
-
-  useEffect(() => {
-    if (!menuOpen) return
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const sidebar = document.querySelector<HTMLElement>('.sidebar')
-    sidebar?.querySelector<HTMLElement>('.close-menu')?.focus()
-    const handleKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); setMenuOpen(false) }
-      if (event.key !== 'Tab') return
-      const buttons = [...sidebar?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []]
-      if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons.at(-1)?.focus() }
-      else if (!event.shiftKey && document.activeElement === buttons.at(-1)) { event.preventDefault(); buttons[0]?.focus() }
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => { document.removeEventListener('keydown', handleKey); opener?.focus() }
-  }, [menuOpen])
 
   useEffect(() => {
     if (!firebaseAuth) return
@@ -527,7 +512,7 @@ function App() {
     try { await firebaseSignOut(firebaseAuth); setPage('overview') }
     catch { showToast('No se pudo cerrar sesión. Revisa tu conexión e inténtalo de nuevo.') }
   }
-  const leaveDemo = () => { setDemoEntryOpen(true); setPage('overview'); setMenuOpen(false); setModal(null) }
+  const leaveDemo = () => { setDemoEntryOpen(true); setPage('overview'); setModal(null) }
   const saveProfile = async (draft: UserProfile) => {
     if (offlineSince) throw new Error('Reconecta antes de editar tu perfil.')
     const next = validateProfile(draft)
@@ -581,25 +566,29 @@ function App() {
   }
   const closeModal = () => { setModal(null); requestAnimationFrame(() => modalOpener.current?.focus()) }
   return <div className={`app-shell ${page === 'overview' ? 'on-overview' : ''}`}>
-    <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`} inert={!!modal}>
-      <div className="sidebar-brand"><BrandMark /><span>MiSer</span><button className="icon-button close-menu" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú"><X size={18} /></button></div>
-      <nav className="main-nav" aria-label="Secciones">{navItems.map(item => { const Icon = item.icon; return <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => { setPage(item.id); setMenuOpen(false) }}><Icon size={18} strokeWidth={1.8} /><span>{item.id === 'goals' ? 'Objetivos' : item.id === 'shopping' ? 'Compras' : item.label}</span>{item.id === 'shopping' && <span className="nav-count">{data.lists.length}</span>}</button>})}</nav>
-      <div className="sidebar-bottom"><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => { setPage('settings'); setMenuOpen(false) }}><Settings size={18} strokeWidth={1.8} /><span>Ajustes</span></button><div className="profile"><ProfileAvatar profile={profile} /><span className="profile-name">{profile.displayName}</span>{isDemo ? <button className="demo-exit" onClick={leaveDemo}><LogOut size={14} /> Salir</button> : <button className="icon-button" onClick={signOut} aria-label="Cerrar sesión"><LogOut size={16} /></button>}</div></div>
-    </aside>
-    {menuOpen && <button className="sidebar-scrim" onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />}
-    <main className="main-content" inert={menuOpen || !!modal}>
-      <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Abrir menú" aria-expanded={menuOpen}><Menu size={20} /></button><div className="breadcrumb"><span>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }).format(today)}</span><strong>{page === 'overview' ? 'Hola, qué bueno verte ✦' : title}</strong></div><div className="topbar-actions"><button className="icon-button notification-button" onClick={() => { setPage('calendar'); showToast(reminders ? `${reminders} recordatorios próximos en tu agenda. No son notificaciones del teléfono.` : 'No tienes recordatorios próximos.') }} aria-label={`Ver agenda: ${reminders} recordatorios próximos`}><Bell size={18} />{reminders > 0 && <i />}</button><button className="icon-button theme-quick-toggle" type="button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'} title={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button><button className="top-profile-button" type="button" onClick={() => { setPage('settings'); setMenuOpen(false) }} aria-label={`Editar perfil de ${profile.displayName}`}><ProfileAvatar profile={profile} className="top-avatar" /><span className="profile-name top-profile-name">{profile.displayName}</span></button></div></header>
+    {!compactLayout && <aside className="sidebar" inert={!!modal}>
+      <div className="sidebar-brand"><BrandMark /><span>MiSer</span></div>
+      <nav className="main-nav" aria-label="Secciones">{navItems.map(item => { const Icon = item.icon; return <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => { setPage(item.id) }}><Icon size={18} strokeWidth={1.8} /><span>{item.id === 'goals' ? 'Objetivos' : item.id === 'shopping' ? 'Compras' : item.label}</span>{item.id === 'shopping' && <span className="nav-count">{data.lists.length}</span>}</button>})}</nav>
+      <div className="sidebar-bottom"><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => { setPage('settings') }}><Settings size={18} strokeWidth={1.8} /><span>Ajustes</span></button><div className="profile"><ProfileAvatar profile={profile} /><span className="profile-name">{profile.displayName}</span>{isDemo ? <button className="demo-exit" onClick={leaveDemo}><LogOut size={14} /> Salir</button> : <button className="icon-button" onClick={signOut} aria-label="Cerrar sesión"><LogOut size={16} /></button>}</div></div>
+    </aside>}
+
+    <main className="main-content" inert={!!modal}>
+      <header className="topbar"><div className="breadcrumb"><span>{new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }).format(today)}</span><strong>{page === 'overview' ? 'Hola, qué bueno verte ✦' : title}</strong></div><div className="topbar-actions"><button className="icon-button notification-button" onClick={() => { setPage('calendar'); showToast(reminders ? `${reminders} recordatorios próximos en tu agenda. No son notificaciones del teléfono.` : 'No tienes recordatorios próximos.') }} aria-label={`Ver agenda: ${reminders} recordatorios próximos`}><Bell size={18} />{reminders > 0 && <i />}</button><button className="icon-button theme-quick-toggle" type="button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'} title={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button><button className="top-profile-button" type="button" onClick={() => { setPage('settings') }} aria-label={`Editar perfil de ${profile.displayName}`}><ProfileAvatar profile={profile} className="top-avatar" /><span className="profile-name top-profile-name">{profile.displayName}</span></button></div></header>
       {isDemo && <div className="demo-banner"><span><Sparkles size={14} /> Estás explorando el modo de demostración. Tus cambios se guardan solo en este navegador.</span><button onClick={leaveDemo}>Ver acceso <ArrowRight size={13} /></button></div>}
       {offlineSince && <div className="sync-banner offline-banner" role="status"><span>Copia local del {new Intl.DateTimeFormat('es-EC', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(offlineSince))}. Solo consulta; los cambios pendientes se conservan.</span><div><button onClick={() => setLoadAttempt(value => value + 1)}>Reconectar</button><button onClick={() => void exportData()}>Exportar copia</button></div></div>}
       {!isDemo && syncStatus !== 'saved' && <div className={`sync-banner ${syncStatus === 'error' ? 'sync-banner-error' : ''}`} role={syncStatus === 'error' ? 'alert' : 'status'}><span>{syncStatus === 'error' ? syncMessage : syncStatus === 'saving' ? 'Guardando cambios…' : 'Cambios pendientes de guardar…'}</span>{syncStatus === 'error' && <div><button onClick={() => setSaveAttempt(value => value + 1)}>Reintentar</button><button onClick={exportData}>Exportar copia</button></div>}</div>}
+      <div key={page} className="t-page-slide app-page-transition" data-page="1">
+        <section className="t-page" data-page-id="1" aria-label={title}>
       {page === 'overview' && <Overview data={data} expenses={expenses} currentMonth={currentMonth} onAdd={() => openModal({ kind: 'transaction' })} onEditTransaction={item => openModal({ kind: 'transaction', item })} onNavigate={setPage} />}
       {page === 'activity' && <Activity data={data} query={search} setQuery={setSearch} onAdd={() => openModal({ kind: 'transaction' })} onEdit={item => openModal({ kind: 'transaction', item })} onDelete={deleteTransaction} />}
        {page === 'calendar' && <CalendarPage data={data} onAdd={date => openModal({ kind: 'event', date })} onEdit={item => openModal({ kind: 'event', item })} onDelete={deleteEvent} />}
        {page === 'goals' && <GoalsPage data={data} onAdd={() => openModal({ kind: 'goal' })} onEdit={item => openModal({ kind: 'goal', item })} onToggle={item => saveGoal({ ...item, completed: !goalCompleted(item) })} onDelete={deleteGoal} />}
       {page === 'shopping' && <ShoppingPage data={data} modify={modify} onAdd={() => openModal({ kind: 'list' })} onEdit={item => openModal({ kind: 'list', item })} onDelete={deleteList} onAddItem={listId => openModal({ kind: 'shoppingItem', listId })} onEditItem={(listId, item) => openModal({ kind: 'shoppingItem', listId, item })} />}
        {page === 'settings' && <SettingsPage key={userId ?? 'demo'} isDemo={isDemo} email={session?.user.email ?? ''} profile={profile} onSaveProfile={saveProfile} preferences={preferences} onPreferencesChange={changePreferences} passwordAccount={session?.user.passwordAccount ?? false} onPasswordChange={requestPasswordChange} syncStatus={syncStatus} syncMessage={syncMessage} onRetry={() => offlineSince ? setLoadAttempt(value => value + 1) : setSaveAttempt(value => value + 1)} onExport={exportData} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => openModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} onExitDemo={leaveDemo} />}
+        </section>
+      </div>
     </main>
-    <nav className="mobile-navigation" aria-label="Navegación principal" inert={menuOpen || !!modal}>{navItems.map(item => { const Icon = item.icon; return <button type="button" key={item.id} aria-current={page === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon size={21} aria-hidden="true" /><span>{item.id === 'shopping' ? 'Compras' : item.id === 'goals' ? 'Objetivos' : item.id === 'activity' ? 'Movimientos' : item.label}</span></button> })}</nav>
+    {compactLayout && <nav className="mobile-navigation" aria-label="Navegación principal" inert={!!modal}>{navItems.map(item => { const Icon = item.icon; return <button type="button" key={item.id} aria-current={page === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon size={21} aria-hidden="true" /><span>{item.id === 'shopping' ? 'Compras' : item.id === 'goals' ? 'Objetivos' : item.id === 'activity' ? 'Movimientos' : item.label}</span></button> })}</nav>}
     {modal && <EditModal modal={modal} month={currentMonth} onClose={closeModal} onSaveTransaction={saveTransaction} onSaveEvent={saveEvent} onSaveGoal={saveGoal} onSaveList={saveList} onSaveShoppingItem={saveShoppingItem} onSaveBudget={saveBudget} />}
      {toast && <div className="toast" role="status"><CheckCircle2 size={17} />{toast}</div>}
   </div>

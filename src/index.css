@@ -1,1 +1,5 @@
 *{box-sizing:border-box}html,body,#root{min-height:100%;margin:0}body{min-width:320px}button{font:inherit}::selection{background:#dbe7d8;color:#344c38}
+/* WebView's tap flash is replaced by app feedback; keyboard focus stays visible. */
+html { -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"], input, select, textarea { touch-action: manipulation; }
+button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }

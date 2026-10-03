@@ -117,6 +117,10 @@ function UpdateNotice() {
 export function AndroidUpdateSettings() {
   const updates = useContext(UpdateContext)
   if (!updates) return null
+  return <AndroidUpdateSettingsView updates={updates} />
+}
+
+export function AndroidUpdateSettingsView({ updates }: { updates: Updates }) {
   const { status, busy, message, error } = updates
   return <section className="panel settings-panel android-update-settings" aria-labelledby="android-update-heading">
     <h2 id="android-update-heading" className="settings-group-heading">Actualizaciones de MiSer</h2>
@@ -127,7 +131,7 @@ export function AndroidUpdateSettings() {
       <button className="btn btn-soft" type="button" disabled={!!busy} onClick={() => void updates.check(true)}><RefreshCw size={16} aria-hidden="true" />{busy === 'checking' ? 'Comprobando…' : 'Buscar actualización'}</button>
       {status?.available && <button className="btn btn-primary" type="button" disabled={!!busy} onClick={() => void updates.install()}><Download size={16} aria-hidden="true" />{busy === 'downloading' ? 'Descargando…' : 'Descargar e instalar'}</button>}
     </div>
-    {status && <div className="settings-section"><div className="settings-copy"><h3>Avisarme de nuevas versiones</h3><p>Notificaciones del teléfono. Puedes desactivarlas cuando quieras.</p></div><button className={`theme-toggle ${status.backgroundEnabled ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={status.backgroundEnabled} disabled={!!busy} aria-label="Avisarme de nuevas versiones" onClick={() => void updates.configure()}><span /></button></div>}
+    {status && <div className="settings-section settings-section-no-icon"><div className="settings-copy"><h3>Avisarme de nuevas versiones</h3><p>Notificaciones del teléfono. Puedes desactivarlas cuando quieras.</p></div><button className={`theme-toggle ${status.backgroundEnabled ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={status.backgroundEnabled} disabled={!!busy} aria-label="Avisarme de nuevas versiones" onClick={() => void updates.configure()}><span /></button></div>}
     {status?.backgroundEnabled && !status.notificationsEnabled && <div><p>Android no permite mostrar los avisos de MiSer.</p><button className="btn btn-soft" type="button" disabled={!!busy} onClick={() => void updates.openPermissions()}>Permitir notificaciones</button></div>}
     {message && <p className={`inline-message ${!error ? 'inline-message-success' : ''}`} role={error ? 'alert' : 'status'}>{message}</p>}
     <p>La actualización conserva tus datos y comprueba la firma del APK. No desinstales la app para actualizar.</p>

@@ -2,12 +2,14 @@
 
 Cambios locales del 3 de octubre de 2026. La aplicación Android sigue usando React y Capacitor, sin migrar a Expo.
 
-- Navegación inferior para las cinco secciones; ajustes desde el perfil o el menú. Panel del menú opaco, foco controlado y contenido de fondo inactivo al abrirlo.
+- Una sola navegación en teléfono, también en horizontal: barra inferior para las cinco secciones y ajustes desde la foto de perfil. El menú lateral se renderiza únicamente en escritorio.
 - Calendario semanal compacto en móvil: siete días visibles, dos filas en teléfonos estrechos, agenda debajo y acceso a Hoy. Semana amplia en escritorio y vista mensual conservadas.
 - Listas de compras compactas, con edición y eliminación de listas en el menú de opciones; conservan artículos, fotos, precios, cantidades y enlaces.
 - Botones móviles principales de 48 px, textos secundarios más legibles y títulos sin duplicación. La equivalencia física en Android debe comprobarse en el dispositivo.
 - El saldo en resumen y movimientos incluye registros hasta hoy. La búsqueda tiene un subtotal separado y los futuros se etiquetan como programados. La lista renderiza inicialmente 50 movimientos.
-- Cierre de formularios con confirmación visible de descarte cuando hay cambios. El botón Atrás de Android cierra primero formulario o menú, vuelve al resumen y solo entonces sale.
+- Cierre de formularios con confirmación visible de descarte cuando hay cambios. El botón Atrás de Android cierra primero el formulario, vuelve al resumen y solo entonces sale.
+- Ajustes sin columnas vacías en el control de actualizaciones; interruptores con área táctil de 48 px y pista visual de 32 px. El botón para cambiar de frase reserva su propio espacio de 48 px, sin invadir el texto.
+- Destello azul de WebView desactivado, manteniendo el foco visible de teclado. Entrada de pantalla de 250 ms sin desenfoque ni rebotes, respuesta breve al tocar y respeto de la preferencia de movimiento reducido.
 - La campana representa eventos futuros marcados para recordatorios; no promete notificaciones del sistema. Las frases de Android son locales y vuelven a rotar al terminar la colección.
 - Copia local validada y aislada por cuenta después de cargar Firebase. Sin conexión se permite consultar/exportar, no editar. Los pendientes se restauran al reconectar y se conserva la comprobación de versiones. Si la carga falla, hay exportación de recuperación local, incluso sin un snapshot completo.
 
