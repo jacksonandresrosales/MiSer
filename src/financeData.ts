@@ -11,6 +11,15 @@ export const money = (amount: number) => cents(amount) / 100
 export const sumMoney = (amounts: number[]) => amounts.reduce((sum, amount) => sum + cents(amount), 0) / 100
 export const goalCompleted = (goal: AnnualGoal) => goal.completed ?? (goal.current !== undefined && goal.target !== undefined && goal.current >= goal.target)
 
+export function summarizeBalance(transactions: Transaction[], throughDate: string) {
+  const recorded = transactions.filter(item => item.date <= throughDate).sort((a, b) => b.date.localeCompare(a.date))
+  return {
+    balance: sumMoney(recorded.map(item => item.type === 'income' ? item.amount : -item.amount)),
+    latestIncome: recorded.find(item => item.type === 'income'),
+    latestExpense: recorded.find(item => item.type === 'expense'),
+  }
+}
+
 export function parseCategoryLimits(text: string): Record<string, number> {
   const limits: Record<string, number> = {}
   if (!text.trim()) return limits

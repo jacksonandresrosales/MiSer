@@ -215,24 +215,43 @@ html[data-theme="dark"] .goal-list-item{border-color:#343a48}
 html[data-theme="dark"] .goal-check{color:#e5e8ef}
 html[data-theme="dark"] .goal-summary,html[data-theme="dark"] .goal-is-done .goal-check label{color:#b0bbce}
 @media(max-width:580px){.goal-add-button{min-width:44px;min-height:44px}.goal-list-item{padding:10px 12px}.goal-check{font-size:14px;gap:10px}.goal-actions .icon-button{width:36px;height:36px}}
-.overview-spend{position:relative;isolation:isolate;overflow:hidden;padding:28px 31px;border-radius:23px;background:linear-gradient(130deg,#7665e8,#a577ed 55%,#f28eae 115%);color:#fff}
+.overview-spend{position:relative;isolation:isolate;overflow:hidden;padding:26px 31px;border-radius:23px;background:linear-gradient(130deg,#514092,#624581 55%,#754963 115%);color:#fff}
 .overview-spend::before,.overview-spend::after{position:absolute;z-index:0;pointer-events:none;content:"";border:23px solid #ffffff18}
 .overview-spend::before{width:220px;height:220px;right:-54px;top:-87px;border-radius:50%}
 .overview-spend::after{width:135px;height:135px;right:95px;bottom:-80px;border-radius:32px;transform:rotate(40deg)}
 .overview-spend>*{position:relative;z-index:1}
-.overview-spend-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
-.overview-spend h1{margin:0 0 9px;color:#fff;font:600 15px 'Plus Jakarta Sans',sans-serif}
-.overview-spend-head strong{display:block;font:700 clamp(36px,4vw,52px) Outfit,sans-serif;letter-spacing:-.03em;line-height:1.1}
+.overview-spend-head{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.overview-spend h1{margin:0;color:#fff;font:600 16px 'Plus Jakarta Sans',sans-serif}
+.overview-money{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,.8fr);gap:28px;align-items:center;margin:27px 0 24px}
+.overview-balance{min-width:0}
+.overview-balance>span{font-size:13px;color:#f0eafa}
+.overview-balance>strong{display:block;margin-top:6px;font:700 clamp(36px,4vw,54px) Outfit,sans-serif;letter-spacing:-.03em;line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.overview-balance p{margin:9px 0 0;color:#f0eafa;font-size:11px;line-height:1.6}
+.overview-last-movements{display:grid;gap:14px;border-left:1px solid #ffffff40;padding-left:28px}
+.overview-last-movement{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 12px;border:0;padding:3px 0;background:transparent;text-align:left;color:inherit;min-height:44px}
+.overview-last-label{display:flex;align-items:center;gap:6px;color:#f0eafa;font-size:11px}
+.overview-last-movement>strong{font:600 18px Outfit,sans-serif;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.overview-last-income>strong{color:#b5f1c6}
+.overview-last-expense>strong{color:#ffe0e5}
+.overview-last-detail{grid-column:1/-1;display:flex;justify-content:space-between;gap:12px;color:#f0eafa;font-size:11px;line-height:1.5}
+.overview-last-detail>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.overview-last-detail time{flex:none}
+.overview-last-movement:not(:disabled):hover .overview-last-detail>span{text-decoration:underline;text-underline-offset:3px}
+.overview-last-movement:focus-visible{outline:2px solid #fff;outline-offset:5px;border-radius:3px}
+.overview-last-movement:disabled{cursor:default}
+.overview-last-movement:disabled>strong{font-size:14px;color:#f0eafa}
+.overview-month-spend{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:17px;border-top:1px solid #ffffff40;font-size:12px}
+.overview-month-spend>strong{font-variant-numeric:tabular-nums;font-weight:600}
 .overview-spend .overview-add{min-height:44px;background:#fff;color:#42377c;box-shadow:none}
 .overview-spend .overview-add:hover{background:#f3efff}
-.overview-budget{max-width:660px;margin-top:30px}
+.overview-budget{margin-top:12px}
 .overview-budget progress{display:block;width:100%;height:10px;appearance:none;border:0;border-radius:10px;overflow:hidden;background:#ffffff59}
 .overview-budget progress::-webkit-progress-bar{background:#ffffff59;border-radius:10px}
 .overview-budget progress::-webkit-progress-value{background:#c2f0d2;border-radius:10px}
 .overview-budget progress::-moz-progress-bar{background:#c2f0d2;border-radius:10px}
 .overview-budget>div{display:flex;justify-content:space-between;gap:12px;margin-top:10px;font-size:12px}
 .overview-budget>div strong{font-weight:700;text-align:right}
-.overview-budget-empty{margin:26px 0 0;color:#fff;font-size:12px}
+.overview-budget-empty{margin:10px 0 0;color:#f0eafa;font-size:11px;line-height:1.6}
 .overview-bottom{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:18px;align-items:start;margin-top:19px}
 .overview-next{padding:20px 21px}
 .overview-next-row{display:flex;align-items:center;gap:12px;min-height:74px;width:100%;padding:10px 6px;border:0;border-radius:12px;background:transparent;color:inherit;text-align:left;transition:background-color var(--duration-quick) var(--ease-out)}
@@ -248,7 +267,8 @@ html[data-theme="dark"] .overview-next-row:hover{background:#252b39}
 html[data-theme="dark"] .overview-next-icon{background:#342d51;color:#c5b5ff}
 html[data-theme="dark"] .overview-next-goal{background:#214035;color:#a3e3bd}
 html[data-theme="dark"] .overview-next-copy small,html[data-theme="dark"] .overview-next-copy>span,html[data-theme="dark"] .overview-next-row>svg{color:#b0bbce}
-@media(max-width:580px){.overview-spend{padding:22px}.overview-spend-head{flex-direction:column;gap:20px}.overview-spend .overview-add{align-self:stretch}.overview-budget{margin-top:25px}.overview-budget>div{font-size:11px}.overview-bottom{grid-template-columns:1fr;gap:12px}.overview-next{padding:16px}}
+@media(max-width:760px){.overview-money{grid-template-columns:1fr;gap:22px}.overview-last-movements{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;border-left:0;padding-left:0}.overview-last-movement{grid-template-columns:1fr;gap:5px}.overview-last-detail{flex-direction:column;gap:0}.overview-last-label{font-size:11px}}
+@media(max-width:580px){.overview-spend{padding:22px}.overview-spend-head{gap:12px;flex-wrap:wrap}.overview-spend .overview-add{font-size:11px;min-height:44px;padding:10px 12px}.overview-money{margin-top:24px}.overview-budget>div{font-size:11px;flex-wrap:wrap}.overview-budget>div strong{text-align:left}.overview-bottom{grid-template-columns:1fr;gap:12px}.overview-next{padding:16px}}
 
 /* Profile and settings extend the existing MiSer palette and controls. */
 .avatar,.top-avatar,.profile-photo{position:relative;overflow:hidden}

@@ -17,7 +17,7 @@ import {
 import { firebaseAuth, firebaseConfigured, firebaseMisconfigured, firestore } from './firebase'
 import { signInWithGoogleAccount } from './googleAuth'
 import { changedRecords, flattenData, loadFinanceData, saveFinanceRecord, saveUserProfile } from './financeStore'
-import { goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney, type FinanceRecord, type RecordMap } from './financeData'
+import { goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney, summarizeBalance, type FinanceRecord, type RecordMap } from './financeData'
 import { demoData } from './demoData'
 import { philosophyQuotes } from './quotes'
 import type { AnnualGoal, Budget, CalendarEvent, FinanceData, ShoppingItem, ShoppingList, Transaction } from './types'
@@ -510,6 +510,7 @@ function PageHeading({ eyebrow, title, subtitle, action }: { eyebrow?: string; t
 
 function Overview({ data, expenses, currentMonth, onAdd, onEditTransaction, onNavigate }: { data: FinanceData; expenses: number; currentMonth: string; onAdd: () => void; onEditTransaction: (item: Transaction) => void; onNavigate: (page: Page) => void }) {
   const now = new Date()
+  const { balance, latestIncome, latestExpense } = summarizeBalance(data.transactions, isoDate(now))
   const latest = [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3)
   const nextEvent = data.events.filter(e => e.date >= isoDate(now)).sort((a, b) => a.date.localeCompare(b.date))[0]
   const nextGoal = data.goals.find(item => !goalCompleted(item))
@@ -517,8 +518,21 @@ function Overview({ data, expenses, currentMonth, onAdd, onEditTransaction, onNa
   const monthLabel = new Intl.DateTimeFormat('es-EC', { month: 'long' }).format(now)
   return <div className="page-wrap miser-dashboard">
     <section className="overview-spend" aria-labelledby="overview-spend-title">
-      <div className="overview-spend-head"><div><h1 id="overview-spend-title">Gastos de {monthLabel}</h1><strong>{currency(expenses)}</strong></div><button className="btn btn-primary overview-add" onClick={onAdd}><Plus size={17} /> Añadir movimiento</button></div>
-      {budget && budget.totalLimit > 0 ? <div className="overview-budget"><progress max={budget.totalLimit} value={Math.min(expenses, budget.totalLimit)} aria-label="Presupuesto mensual utilizado" /><div><span>Presupuesto: {currency(budget.totalLimit)}</span><strong>{expenses < budget.totalLimit ? `Te quedan ${currency(money(budget.totalLimit - expenses))}` : expenses === budget.totalLimit ? 'Llegaste a tu límite' : `Superaste el límite por ${currency(money(expenses - budget.totalLimit))}`}</strong></div></div> : <p className="overview-budget-empty">Sin límite mensual configurado. Puedes añadirlo en Ajustes.</p>}
+      <div className="overview-spend-head"><h1 id="overview-spend-title">Tu dinero</h1><button className="btn btn-primary overview-add" onClick={onAdd}><Plus size={17} /> Añadir movimiento</button></div>
+      <div className="overview-money">
+        <div className="overview-balance"><span>Saldo disponible</span><strong>{currency(balance)}</strong><p>Ingresos menos gastos registrados hasta hoy.</p></div>
+        <div className="overview-last-movements" aria-label="Último ingreso y último gasto">
+          {([{ item: latestIncome, type: 'income', label: 'Último ingreso' }, { item: latestExpense, type: 'expense', label: 'Último gasto' }] as const).map(({ item, type, label }) => (
+            <button key={type} type="button" className={`overview-last-movement overview-last-${type}`} disabled={!item} onClick={() => item && onEditTransaction(item)} aria-label={item ? `${label}: ${item.title}, ${currency(item.amount)}, ${shortDate(item.date)}. Editar movimiento` : `${label}: sin registrar`}>
+              <span className="overview-last-label">{type === 'income' ? <ArrowDownLeft size={15} aria-hidden="true" /> : <ArrowUpRight size={15} aria-hidden="true" />}{label}</span>
+              <strong>{item ? `${type === 'income' ? '+' : '−'}${currency(item.amount)}` : 'Sin registrar'}</strong>
+              <span className="overview-last-detail">{item ? <><span title={item.title}>{item.title}</span><time dateTime={item.date}>{shortDate(item.date)}</time></> : 'Añade tu primer movimiento'}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="overview-month-spend"><span>Gastos de {monthLabel}</span><strong>{currency(expenses)}</strong></div>
+      {budget && budget.totalLimit > 0 ? <div className="overview-budget"><progress max={budget.totalLimit} value={Math.min(expenses, budget.totalLimit)} aria-label="Presupuesto mensual utilizado" /><div><span>Presupuesto: {currency(budget.totalLimit)}</span><strong>{expenses < budget.totalLimit ? `Te quedan ${currency(money(budget.totalLimit - expenses))} del presupuesto` : expenses === budget.totalLimit ? 'Llegaste a tu límite' : `Superaste el límite por ${currency(money(expenses - budget.totalLimit))}`}</strong></div></div> : <p className="overview-budget-empty">Sin límite mensual configurado. Puedes añadirlo en Ajustes.</p>}
     </section>
     <MotivationCard />
     <section className="overview-bottom">

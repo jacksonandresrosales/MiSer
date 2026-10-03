@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { changedRecords, flattenData, goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney } from './financeData.ts'
+import { changedRecords, flattenData, goalCompleted, inflateRecords, money, parseCategoryLimits, sumMoney, summarizeBalance } from './financeData.ts'
 import type { FinanceData } from './types.ts'
 import { parsePreferences, parseProfile, profileInitials, profilePhotoSrc, validateProfile } from './userProfile.ts'
 
@@ -19,6 +19,25 @@ test('money and category limits reject malformed values', () => {
   assert.deepEqual(parseCategoryLimits('Comida: 350, Hogar: 10.50'), { Comida: 350, Hogar: 10.5 })
   assert.throws(() => parseCategoryLimits('Comida: hola'))
   assert.throws(() => parseCategoryLimits('Comida: 1, Comida: 2'))
+})
+
+test('balance includes previous months, ignores future entries and finds the latest income and expense', () => {
+  const transaction = { id: 'past', title: 'Movimiento', category: 'Otro', type: 'income' as const, amount: 100, date: '2026-09-01' }
+  const entries = [
+    transaction,
+    { ...transaction, id: 'small', amount: 0.1, date: '2026-10-01' },
+    { ...transaction, id: 'spent', type: 'expense' as const, amount: 20.2, date: '2026-10-02' },
+    { ...transaction, id: 'latest', amount: 0.2, date: '2026-10-03' },
+    { ...transaction, id: 'future', amount: 500, date: '2026-10-04' },
+  ]
+  const summary = summarizeBalance(entries, '2026-10-03')
+  assert.equal(summary.balance, 80.1)
+  assert.equal(summary.latestIncome?.id, 'latest')
+  assert.equal(summary.latestExpense?.id, 'spent')
+  assert.equal(entries[0].id, 'past')
+  assert.deepEqual(summarizeBalance([], '2026-10-03'), { balance: 0, latestIncome: undefined, latestExpense: undefined })
+  assert.equal(summarizeBalance([entries[2]], '2026-10-03').balance, -20.2)
+  assert.equal(summarizeBalance([transaction], '2026-10-03').latestExpense, undefined)
 })
 
 test('new goals use a check while legacy goals keep their completed state', () => {
