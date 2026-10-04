@@ -2,6 +2,12 @@
 -keepattributes RuntimeVisibleAnnotations,AnnotationDefault
 -keep class com.miser.finanzas.UpdateWorker { public <init>(...); }
 -keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
+# The authentication plugin references its optional, compileOnly Facebook provider.
+# MiSer enables google.com only; do not bundle an unused Facebook SDK or silence other errors.
+-dontwarn com.facebook.CallbackManager
+-dontwarn com.facebook.CallbackManager$Factory
+-dontwarn com.facebook.FacebookCallback
+-dontwarn com.facebook.login.LoginManager
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
