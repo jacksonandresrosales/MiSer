@@ -82,8 +82,9 @@ public class UpdateWorker extends Worker {
             .setInitialDelay(6, TimeUnit.HOURS)
             .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresBatteryNotLow(true).build())
             .build();
-        // KEEP preserves the next run on every app launch. Android can defer runs beyond six hours.
-        manager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request);
+        // UPDATE applies new battery constraints to installed apps without resetting the enqueue time.
+        // Android can defer runs beyond six hours.
+        manager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request);
     }
 
     @NonNull
