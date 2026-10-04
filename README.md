@@ -173,12 +173,12 @@ npm run build
 
 El workflow [Build Android APK](.github/workflows/build-apk.yml) se ejecuta al cambiar `main`, salvo cambios exclusivamente en archivos Markdown o `.gitignore`. También puede iniciarse manualmente desde **Actions → Build Android APK → Run workflow**.
 
-Comprueba la web, ejecuta pruebas Android, genera el APK y verifica Firebase/OAuth y la firma antes de publicar una release y actualizar el canal.
+Comprueba la web y las reglas en un emulador, ejecuta pruebas Android, genera un APK **release** optimizado sin depuración y verifica Firebase/OAuth y la firma antes de publicar una release y actualizar el canal.
 
 El workflow de este repositorio requiere:
 
 - Añade las seis variables `VITE_FIREBASE_*` a **Settings → Secrets and variables → Actions** como variables o secretos; los secretos tienen prioridad.
-- Guarda la clave de firma de desarrollo en el secreto `ANDROID_DEBUG_KEYSTORE_BASE64`. No la subas al repositorio ni la cambies entre actualizaciones.
+- Conserva la clave privada existente en el secreto `ANDROID_DEBUG_KEYSTORE_BASE64` (el nombre se mantiene por compatibilidad). No la subas al repositorio ni la cambies entre actualizaciones.
 - Registra la aplicación Android `com.miser.finanzas` en Firebase, añade la SHA-1 de esa firma y sustituye `android/app/google-services.json` por la configuración correspondiente a tu proyecto.
 - Mantén el repositorio público para que el actualizador pueda consultar y descargar las releases sin un token dentro de la app.
 
@@ -188,7 +188,10 @@ Si haces un **fork**, adapta primero el repositorio permitido en `scripts/publis
 
 ## Datos, privacidad y alcance
 
+Consulta [Seguridad, despliegue de reglas y rendimiento](docs/SECURITY.md) antes de activar App Check o sincronización incremental. Las reglas del repositorio deben publicarse en Firebase; el empaquetado no las despliega automáticamente.
+
 - **Con cuenta:** Firestore guarda los registros en `finance_data/{uid}/records/{id}` y el perfil en `finance_data/{uid}`, bajo el usuario autenticado.
+- **Android:** recuperación financiera cifrada mediante Android Keystore y bloqueo opcional con huella/PIN en Ajustes. Los backups del sistema están desactivados; los cambios pendientes no se eliminan al cerrar sesión.
 - **Sin conexión:** después de una carga correcta, una copia local validada permite consultar y exportar datos. La edición se bloquea hasta reconectar. No es un modo de edición offline.
 - **Demostración:** utiliza almacenamiento local independiente de la cuenta. No representa datos financieros reales.
 - **Exportación:** la copia JSON incluye movimientos, eventos, objetivos, compras y presupuestos; no incluye el perfil. Guárdala en un lugar privado.
@@ -243,5 +246,6 @@ Actualmente el repositorio no incluye un archivo `LICENSE`. No se declara una li
 
 - [Mejoras y alcance de la adaptación móvil](docs/mejoras-moviles.md).
 - [Instalación, seguridad y actualizaciones Android](docs/actualizaciones-android.md).
+- [Endurecimiento, pruebas y configuración de Firebase](docs/SECURITY.md).
 - [Adaptación Kotlin Multiplatform](kotlin/README.md).
 - [Guía oficial de Vite en Vercel](https://vercel.com/docs/frameworks/frontend/vite).

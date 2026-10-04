@@ -47,6 +47,9 @@ jobs:
       - name: Test application
         run: npm test
 
+      - name: Test Firestore security rules without touching Firebase production
+        run: npx --yes --package firebase-tools@15.32.1 firebase emulators:exec --only firestore --project demo-miser "npm run test:rules"
+
       - name: Build Web Application
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || vars.VITE_FIREBASE_API_KEY }}
@@ -55,6 +58,9 @@ jobs:
           VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET || vars.VITE_FIREBASE_STORAGE_BUCKET }}
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID || vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID || vars.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_APP_CHECK_ENABLED: ${{ vars.VITE_FIREBASE_APP_CHECK_ENABLED || 'false' }}
+          VITE_FIREBASE_APP_CHECK_SITE_KEY: ${{ vars.VITE_FIREBASE_APP_CHECK_SITE_KEY }}
+          VITE_FIRESTORE_INCREMENTAL_SYNC: ${{ vars.VITE_FIRESTORE_INCREMENTAL_SYNC || 'false' }}
         run: |
           node --input-type=module -e "const keys = ['API_KEY', 'AUTH_DOMAIN', 'PROJECT_ID', 'STORAGE_BUCKET', 'MESSAGING_SENDER_ID', 'APP_ID'].map(k => 'VITE_FIREBASE_' + k); const missing = keys.filter(k => !process.env[k]?.trim()); if (missing.length) throw new Error('Falta configurar Firebase: ' + missing.join(', '));"
           npm run build
@@ -64,7 +70,7 @@ jobs:
           npx cap sync android
           node --input-type=module -e "import fs from 'node:fs'; import assert from 'node:assert/strict'; const plugins = JSON.parse(fs.readFileSync('android/app/src/main/assets/capacitor.plugins.json', 'utf8')); for (const pkg of ['@capacitor/filesystem', '@capacitor/share', '@capacitor-firebase/authentication']) assert.ok(plugins.some(p => p.pkg === pkg), 'Plugin Android no registrado: ' + pkg); const config = JSON.parse(fs.readFileSync('android/app/src/main/assets/capacitor.config.json', 'utf8')); assert.equal(config.plugins.FirebaseAuthentication.skipNativeAuth, true); assert.ok(config.plugins.FirebaseAuthentication.providers.includes('google.com'));"
 
-      - name: Restore stable development signing key
+      - name: Restore existing signing certificate
         env:
           ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
           MISER_DEBUG_KEYSTORE: ${{ runner.temp }}/miser-debug.keystore
@@ -74,18 +80,22 @@ jobs:
           chmod 600 "$MISER_DEBUG_KEYSTORE"
           echo "MISER_DEBUG_KEYSTORE=$MISER_DEBUG_KEYSTORE" >> "$GITHUB_ENV"
 
-      - name: Build Android Debug APK
+      - name: Build optimized Android Release APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest assembleDebug --stacktrace
+          ./gradlew testReleaseUnitTest assembleRelease --stacktrace
 
       - name: Verify and prepare APK
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || vars.VITE_FIREBASE_PROJECT_ID }}
         run: |
           mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/MiSer.apk
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/MiSer.apk
+          APK_ANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test "$("$APK_ANALYZER" manifest debuggable artifacts/MiSer.apk)" = 'false'
+          "$APK_ANALYZER" manifest print artifacts/MiSer.apk > artifacts/manifest.xml
+          grep -q 'android:allowBackup="false"' artifacts/manifest.xml
           APK_SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
           "$APK_SIGNER" verify --verbose --print-certs artifacts/MiSer.apk | tee artifacts/certificado.txt
           keytool -exportcert -keystore "$MISER_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey -file "$RUNNER_TEMP/miser-signing.cer"
@@ -107,7 +117,7 @@ jobs:
           assert.ok(generatedResources.some(xml => xml.includes(webClient.client_id) && xml.includes(client.client_info.mobilesdk_app_id)), 'No se generó la configuración Firebase y OAuth Android');
           NODE
           (cd artifacts && sha256sum MiSer.apk > MiSer.apk.sha256)
-          echo 'APK de pruebas con Google nativo integrado. Firebase, clientes OAuth y firma estable verificados; prueba el acceso en un teléfono.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'APK release: depuración y backup desactivados; firma, Firebase y OAuth verificados. Validar huella, cifrado y consumo en un teléfono.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

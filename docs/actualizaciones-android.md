@@ -6,13 +6,13 @@ La primera APK que incluya el actualizador debe instalarse manualmente, encima d
 
 Después:
 
-1. MiSer comprueba las versiones al abrirse y al volver al primer plano, incluso antes de iniciar sesión.
+1. MiSer comprueba las versiones al abrirse, incluso antes de iniciar sesión. Al volver al primer plano reutiliza un intervalo de espera de una hora para evitar consultas repetidas; la búsqueda manual no espera ese intervalo.
 2. Si hay una versión más nueva, muestra **Descargar e instalar**. También puedes buscarla en **Ajustes → Actualizaciones de MiSer**.
 3. Para recibir avisos con la app cerrada, activa **Avisarme de nuevas versiones** y permite las notificaciones de Android.
 4. La descarga solo comienza cuando la pides. Si Android solicita autorizar instalaciones desde MiSer, activa **Permitir de esta fuente**, vuelve a MiSer y pulsa el botón de nuevo.
 5. Confirma la instalación en Android. No desinstales MiSer: una actualización con el mismo paquete y firma conserva sus datos.
 
-Los avisos no son push instantáneos: se comprueba cada 6 horas cuando hay conexión mediante WorkManager. Android puede retrasarlo por batería, ahorro de datos o restricciones del fabricante; forzar la detención impide ejecutar trabajo hasta volver a abrir la app. No garantiza avisos justo al terminar GitHub. No se permite instalar silenciosamente ni eludir las confirmaciones de Android.
+Los avisos no son push instantáneos: se comprueba cada 6 horas cuando hay conexión y la batería no está baja mediante WorkManager. Android puede retrasarlo por batería, ahorro de datos o restricciones del fabricante; forzar la detención impide ejecutar trabajo hasta volver a abrir la app. No garantiza avisos justo al terminar GitHub. No se permite instalar silenciosamente ni eludir las confirmaciones de Android.
 
 ## Publicación en GitHub
 
@@ -30,7 +30,7 @@ El canal se crea por primera vez cuando se sube este cambio y termina el workflo
 ## Seguridad y mantenimiento
 
 - Mantén `ANDROID_DEBUG_KEYSTORE_BASE64` y las variables Firebase existentes. Cambiar la firma impide actualizar la instalación anterior y puede romper Google OAuth.
-- Las compilaciones actuales son APK **de pruebas**, firmadas con la clave de desarrollo estable del proyecto. No se presentan como APK de producción ni como una distribución en Google Play. Antes de una distribución comercial, prepara una clave de producción y un plan de migración.
+- El workflow está configurado para generar un APK **release**, sin depuración y con reducción de código y recursos. Conserva el certificado estable existente para actualizar sin desinstalar: el nombre histórico del secreto no convierte la compilación en debug. Los APK publicados antes de este cambio pueden seguir siendo debug; solo una nueva ejecución correcta publica la versión endurecida. Esto no sustituye una revisión de distribución comercial o Google Play y de la custodia de la clave.
 - Se valida el origen HTTPS del manifiesto y del APK, el esquema, el paquete, el tamaño, el código de versión, SHA-256 y la firma contra la instalación existente. Un archivo que no cumple no abre el instalador.
 - El instalador de Android sigue siendo la autoridad final para aceptar y aplicar la actualización.
 - No cambies el nombre del workflow o reinicies su contador sin asegurar que los nuevos códigos de versión superan los que ya están instalados.
@@ -39,6 +39,8 @@ El canal se crea por primera vez cuando se sube este cambio y termina el workflo
 
 ## Verificación
 
-`npm test` incluye pruebas del manifiesto de publicación y de la app. `npm run build` y `npm run lint` comprueban la web. El workflow ejecuta `testDebugUnitTest` y `assembleDebug` para Android antes de publicar.
+`npm test` incluye pruebas del manifiesto de publicación y de la app. `npm run build` y `npm run lint` comprueban la web. El workflow prueba las reglas en el emulador de Firestore, ejecuta `testReleaseUnitTest` y `assembleRelease` para Android y comprueba que el APK no permite depuración ni copias de seguridad antes de publicar.
+
+Consulta [Seguridad y privacidad](SECURITY.md) para el despliegue gradual de reglas, App Check, la copia cifrada y la comprobación en un teléfono real. Una compilación web local no confirma que el nuevo APK ya esté publicado.
 
 Prueba en un teléfono real: negar/permitir notificaciones, desactivar los avisos, abrir el aviso, descargar sin conexión, autorizar fuentes externas, cancelar y reintentar la instalación, y actualizar de N a N+1 comprobando que se conserva sesión y datos. La compilación web no verifica esos diálogos ni la ejecución en segundo plano.

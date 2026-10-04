@@ -83,7 +83,7 @@ export async function publish({ apk: suppliedApk } = {}) {
   const apk = suppliedApk ?? readFileSync('artifacts/MiSer.apk')
   let manifest = createManifest(apk, versionCode)
   const build = await release(`android-build-${versionCode}`, `MiSer Android · ${manifest.versionName}`,
-    'APK de pruebas firmada con la clave estable de MiSer. Android solicitará confirmar la instalación. No es una distribución de producción en Google Play.')
+    'APK release optimizada, sin depuración, firmada con el certificado existente de MiSer. Android solicitará confirmar la instalación. Distribución directa, no mediante Google Play.')
   const existingManifest = uploadedAsset(build, 'update.json')
   if (existingManifest) {
     // Immutable build: reruns reuse the exact APK/hash already published.
@@ -98,7 +98,7 @@ export async function publish({ apk: suppliedApk } = {}) {
     await upload(build, 'update.json', Buffer.from(JSON.stringify(manifest, null, 2)))
   }
   const channel = await release('android-latest', 'MiSer · canal de actualizaciones Android',
-    'Canal automático de APK de pruebas. Las versiones por compilación conservan su APK y checksum; update.json apunta a la más reciente.')
+    'Canal automático de APK release. Las versiones por compilación conservan su APK y checksum; update.json apunta a la más reciente.')
   const currentAsset = uploadedAsset(channel, 'update.json')
   const backupAsset = uploadedAsset(channel, 'previous-update.json')
   const current = currentAsset ? await readManifest(currentAsset) : backupAsset ? await readManifest(backupAsset) : null
@@ -123,7 +123,7 @@ export async function publish({ apk: suppliedApk } = {}) {
     throw failure
   }
   await request(`${api}/releases/${channel.id}`, { method: 'PATCH', json: {
-    body: `Último APK de pruebas: [MiSer ${manifest.versionName}](${manifest.apkUrl}).\n\nAndroid pide confirmación. Conserva la misma firma y los datos de la instalación anterior.`,
+    body: `Último APK release: [MiSer ${manifest.versionName}](${manifest.apkUrl}).\n\nAndroid pide confirmación. Conserva la misma firma y los datos de la instalación anterior.`,
   } })
   console.log(`APK publicada: ${manifest.apkUrl}`)
 }
