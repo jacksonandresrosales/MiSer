@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, CalendarDays, CreditCard, Pencil, Plus, X } from 'lucide-react'
 import type { CalendarEvent, FinanceData } from './types'
 import './CalendarPage.css'
@@ -36,7 +36,7 @@ export function CalendarPage({ data, onAdd, onEdit, onDelete }: CalendarPageProp
   const monthLength = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0).getDate()
   const monthDays = Array.from({ length: Math.ceil((monthOffset + monthLength) / 7) * 7 }, (_, index) =>
     new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1 - monthOffset + index, 12))
-  const events = [...data.events].sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''))
+  const events = useMemo(() => [...data.events].sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? '')), [data.events])
   const selectedEvents = events.filter(event => event.date === selected)
   const upcoming = events.filter(event => event.date >= today).slice(0, 5)
   const monthLabel = new Intl.DateTimeFormat('es-EC', { month: 'long', year: 'numeric' }).format(firstOfMonth)

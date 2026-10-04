@@ -30,13 +30,14 @@ export function parseCategoryLimits(text: string): Record<string, number> {
     const amount = Number(match[2])
     if (!name || !Number.isFinite(amount) || Object.hasOwn(limits, name)) throw new Error('Revisa las categorías repetidas o los montos inválidos.')
     limits[name] = money(amount)
+    if (Object.keys(limits).length > 10) throw new Error('Usa como máximo 10 categorías por presupuesto.')
   }
   return limits
 }
 
 export function flattenData(data: FinanceData): RecordMap {
   const records: RecordMap = new Map()
-  const add = (kind: RecordKind, id: string, value: object) => records.set(recordKey(kind, id), { kind, value: JSON.parse(JSON.stringify(value)) as Record<string, unknown> })
+  const add = (kind: RecordKind, id: string, value: object) => records.set(recordKey(kind, id), { kind, value: { ...value } as Record<string, unknown> })
   data.transactions.forEach(value => add('transaction', value.id, value))
   data.events.forEach(value => add('event', value.id, value))
   data.goals.forEach(value => add('goal', value.id, value))

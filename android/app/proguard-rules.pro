@@ -1,4 +1,7 @@
 # Add project specific ProGuard rules here.
+-keepattributes RuntimeVisibleAnnotations,AnnotationDefault
+-keep class com.miser.finanzas.UpdateWorker { public <init>(...); }
+-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #

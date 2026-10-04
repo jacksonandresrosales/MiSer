@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'MiSer',
   webDir: 'dist',
   server: { androidScheme: 'https' },
+  android: { webContentsDebuggingEnabled: false },
   plugins: {
     FirebaseAuthentication: { skipNativeAuth: true, providers: ['google.com'] },
   },

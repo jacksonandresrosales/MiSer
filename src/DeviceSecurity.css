@@ -1,0 +1,6 @@
+.device-lock-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--cream, #f8f7f2); color: var(--ink, #1e293b); }
+.device-lock-content { max-width: 360px; text-align: center; display: grid; justify-items: center; gap: 16px; }
+.device-lock-content h1 { font: 700 28px Outfit, sans-serif; margin: 0; }
+.device-lock-content p { margin: 0; line-height: 1.6; }
+.device-lock-content > svg { color: #7865df; }
+[data-theme="dark"] .device-lock-screen { background: #10131b; color: #eeedf8; }

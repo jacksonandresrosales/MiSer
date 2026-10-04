@@ -80,7 +80,7 @@ public class UpdateWorker extends Worker {
         }
         PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(UpdateWorker.class, 6, TimeUnit.HOURS)
             .setInitialDelay(6, TimeUnit.HOURS)
-            .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresBatteryNotLow(true).build())
             .build();
         // KEEP preserves the next run on every app launch. Android can defer runs beyond six hours.
         manager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request);

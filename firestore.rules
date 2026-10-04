@@ -2,15 +2,101 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid && request.auth.token.email_verified == true; }
+    function text(value, max) { return value is string && value.size() <= max; }
+    function amount(value) { return value is number && value >= 0 && value <= 1000000000000; }
+    function date(value) {
+      let year = int(value[0:4]);
+      let month = int(value[5:7]);
+      let day = int(value[8:10]);
+      return value is string && value.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')
+        && day <= (month == 2 ? (year % 400 == 0 || year % 4 == 0 && year % 100 != 0 ? 29 : 28) : month in [4, 6, 9, 11] ? 30 : 31);
+    }
+    function photo(value) {
+      return value == '' || value is string && (value.size() <= 2048 && value.matches('^https://.+')
+        || value.size() <= 140000 && value.matches('^data:image/jpeg;base64,[A-Za-z0-9+/]+={0,2}$'));
+    }
+    function limitAt(value, names, index) {
+      let name = names.size() > index ? names[index] : '';
+      return value.size() <= index || name.size() > 0 && name.size() <= 200 && amount(value[name]);
+    }
+    function limits(value) {
+      let names = value.keys();
+      // ponytail: 10 categories bound rule evaluation; use category documents beyond this.
+      return value.size() <= 10 && limitAt(value, names, 0) && limitAt(value, names, 1) && limitAt(value, names, 2) && limitAt(value, names, 3) && limitAt(value, names, 4) && limitAt(value, names, 5) && limitAt(value, names, 6) && limitAt(value, names, 7) && limitAt(value, names, 8) && limitAt(value, names, 9);
+    }
+    function linkAt(values, index) { return values.size() <= index || text(values[index], 2048) && values[index].matches('^https?://[^ ]+'); }
+    function links(values) { return values is list && values.size() <= 10 && linkAt(values, 0) && linkAt(values, 1) && linkAt(values, 2) && linkAt(values, 3) && linkAt(values, 4) && linkAt(values, 5) && linkAt(values, 6) && linkAt(values, 7) && linkAt(values, 8) && linkAt(values, 9); }
+    function profile(value) {
+      return value is map && value.keys().hasAll(['displayName', 'photoURL']) && value.keys().hasOnly(['displayName', 'photoURL'])
+        && text(value.displayName, 50) && value.displayName.size() >= 2 && photo(value.photoURL);
+    }
+    function body(kind, value) {
+      return value is map && (
+        kind == 'transaction' ? value.keys().hasOnly(['id', 'title', 'type', 'amount', 'category', 'date', 'note'])
+          && text(value.id, 200) && text(value.title, 200) && value.title.size() > 0 && value.type in ['income', 'expense']
+          && amount(value.amount) && text(value.category, 200) && date(value.date) && text(value.get('note', ''), 4000)
+        : kind == 'event' ? value.keys().hasOnly(['id', 'title', 'date', 'kind', 'amount', 'note', 'time', 'location', 'category', 'remind'])
+          && text(value.id, 200) && text(value.title, 200) && value.title.size() > 0 && date(value.date)
+          && value.kind in ['event', 'payment'] && value.remind is bool && amount(value.get('amount', 0))
+          && text(value.get('note', ''), 4000) && text(value.get('location', ''), 200)
+          && (value.get('time', '') == '' || value.time is string && value.time.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$'))
+          && value.get('category', 'personal') in ['personal', 'work', 'health']
+        : kind == 'goal' ? value.keys().hasOnly(['id', 'title', 'completed', 'category', 'target', 'current', 'dueDate', 'unit'])
+          && text(value.id, 200) && text(value.title, 200) && value.title.size() > 0 && value.get('completed', false) is bool
+          && text(value.get('category', ''), 200) && text(value.get('unit', ''), 200)
+          && amount(value.get('target', 0)) && amount(value.get('current', 0))
+          && (value.get('dueDate', '') == '' || date(value.dueDate))
+        : kind == 'list' ? value.keys().hasOnly(['id', 'title', 'store', 'position']) && text(value.id, 200)
+          && text(value.title, 200) && value.title.size() > 0 && text(value.store, 200)
+          && value.get('position', 0) is int && value.get('position', 0) >= 0
+        : kind == 'item' ? value.keys().hasOnly(['id', 'name', 'done', 'description', 'amount', 'quantity', 'imageUrl', 'purchaseLinks', 'listId', 'position'])
+          && text(value.id, 200) && text(value.name, 200) && value.name.size() > 0 && value.done is bool && text(value.listId, 200)
+          && value.get('position', 0) is int && value.get('position', 0) >= 0 && amount(value.get('amount', 0))
+          && text(value.get('description', ''), 4000) && text(value.get('quantity', ''), 200)
+          && (photo(value.get('imageUrl', '')) || value.get('imageUrl', '') is string && value.imageUrl.matches('^miser-media:[a-f0-9]{64}$'))
+          && links(value.get('purchaseLinks', []))
+        : kind == 'budget' ? value.keys().hasOnly(['month', 'totalLimit', 'categoryLimits'])
+          && value.month is string && value.month.matches('^[0-9]{4}-(0[1-9]|1[0-2])$') && amount(value.totalLimit)
+          && value.categoryLimits is map && limits(value.categoryLimits) : false
+      );
+    }
+    function record(uid, recordId) {
+      let next = request.resource.data;
+      return next.keys().hasOnly(['kind', 'value', 'version', 'deleted', 'updatedAt'])
+        && next.version is int && next.version > 0 && next.version <= 9007199254740991
+        && next.updatedAt == request.time && getAfter(/databases/$(database)/documents/finance_data/$(uid)).data.updatedAt == request.time
+        && (next.get('deleted', false) == true && next.keys().hasOnly(['deleted', 'version', 'updatedAt'])
+          || next.get('deleted', false) == false && recordId.matches('^' + next.kind + '_.+') && body(next.kind, next.value));
+    }
     match /finance_data/{userId} {
-      allow read, write: if request.auth != null
-        && request.auth.uid == userId
-        && request.auth.token.email_verified == true;
+      allow read: if owner(userId);
+      allow create: if owner(userId) && request.resource.data.keys().hasOnly(['profile', 'schemaVersion', 'syncProtocol', 'updatedAt', 'migratedAt'])
+        && validRoot();
+      allow update: if owner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profile', 'schemaVersion', 'syncProtocol', 'updatedAt', 'migratedAt'])
+        && validRoot();
+      function validRoot() {
+        let next = request.resource.data;
+        return (!('profile' in next) || profile(next.profile)) && (next.get('schemaVersion', 2) == 2 || next.get('schemaVersion', 2) == resource.data.get('schemaVersion', 2)) && next.get('syncProtocol', 1) == 1
+          && (!('updatedAt' in next) || next.updatedAt == request.time || 'updatedAt' in resource.data && next.updatedAt == resource.data.updatedAt)
+          && (!('migratedAt' in next) || next.migratedAt == request.time || 'migratedAt' in resource.data && next.migratedAt == resource.data.migratedAt);
+      }
 
       match /records/{recordId} {
-        allow read, write: if request.auth != null
-          && request.auth.uid == userId
-          && request.auth.token.email_verified == true;
+        allow read: if owner(userId);
+        allow create: if owner(userId) && record(userId, recordId) && request.resource.data.version == 1;
+        allow update: if owner(userId) && record(userId, recordId) && request.resource.data.version == resource.data.version + 1;
+        // Keep tombstones so another device cannot resurrect a deletion or lose its version.
+        allow delete: if false;
+      }
+      match /media/{mediaId} {
+        allow read: if owner(userId);
+        allow create, update: if owner(userId) && mediaId.matches('^[a-f0-9]{64}$')
+          && request.resource.data.keys().hasOnly(['imageUrl', 'updatedAt'])
+          && request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() <= 140000
+          && request.resource.data.imageUrl.matches('^data:image/jpeg;base64,[A-Za-z0-9+/]+={0,2}$')
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if false;
       }
     }
   }

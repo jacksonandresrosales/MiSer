@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { App as NativeApp } from '@capacitor/app'
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
@@ -26,9 +26,13 @@ import { defaultPreferences, parsePreferences, parseProfile, profileInitials, pr
 import { backDestination } from './mobileNavigation'
 import { useCompactLayout } from './useCompactLayout'
 import { nextLocalQuoteIndex } from './quoteRotation'
-import { readFinanceCache, readPendingChanges, writeFinanceCache } from './financeCache'
-import CalendarPage from './CalendarPage'
-import ShoppingPage from './ShoppingPage'
+import { parsePendingChanges, readFinanceCache, readPendingChanges, writeFinanceCache } from './financeCache'
+import { clearPrivateCache, flushPrivateStorage, forgetPrivateMemory, preparePrivateStorage, privateStorage } from './privateStorage'
+import { DeviceSecurityGate, DeviceSecuritySettings } from './DeviceSecurity'
+import { FinanceImage } from './FinanceImage'
+import { mediaId } from './financeMedia'
+const CalendarPage = lazy(() => import('./CalendarPage'))
+const ShoppingPage = lazy(() => import('./ShoppingPage'))
 import { AndroidUpdatesProvider, AndroidUpdateSettings } from './AndroidUpdates'
 import './MiSer.css'
 import './mobile-ux.css'
@@ -39,8 +43,10 @@ type Modal = { kind: 'transaction'; item?: Transaction } | { kind: 'event'; item
 type Session = { user: { id: string; email?: string; verified: boolean; passwordAccount: boolean } } | null
 type MotivationQuote = { text: string; author: string; work?: string; source: string; sourceLabel?: string; translation?: boolean }
 
-const currency = (value: number) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
-const shortDate = (value: string) => new Intl.DateTimeFormat('es-EC', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`))
+const currencyFormatter = new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+const dateFormatter = new Intl.DateTimeFormat('es-EC', { day: 'numeric', month: 'short' })
+const currency = (value: number) => currencyFormatter.format(value)
+const shortDate = (value: string) => dateFormatter.format(new Date(`${value}T12:00:00`))
 const monthId = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 const id = () => crypto.randomUUID()
@@ -101,14 +107,14 @@ const webUrl = (value: string) => {
     return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null
   } catch { return null }
 }
-const shoppingImageSrc = (value?: string) => value?.startsWith('data:image/jpeg;base64,') ? value : value ? webUrl(value) : null
+const shoppingImageSrc = (value?: string) => profilePhotoSrc(value ?? '')
 
 async function compressImage(file: File, avatar = false): Promise<string> {
   if (!/^image\/(jpeg|png|webp|avif)$/.test(file.type)) throw new Error('Usa una imagen JPG, PNG, WebP o AVIF.')
   if (file.size > 10 * 1024 * 1024) throw new Error('La imagen debe pesar menos de 10 MB.')
-  const bitmap = await createImageBitmap(file).catch(() => { throw new Error('No se pudo leer la imagen. Prueba con otro archivo JPG, PNG, WebP o AVIF.') })
+  const bitmap = await createImageBitmap(file, { resizeWidth: avatar ? 512 : 1024, resizeQuality: 'high' }).catch(() => { throw new Error('No se pudo leer la imagen. Prueba con otro archivo JPG, PNG, WebP o AVIF.') })
   try {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       const edge = (avatar ? 256 : 760) * Math.pow(0.78, attempt)
       const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height))
       const canvas = document.createElement('canvas')
@@ -122,7 +128,8 @@ async function compressImage(file: File, avatar = false): Promise<string> {
         const crop = Math.min(bitmap.width, bitmap.height)
         context.drawImage(bitmap, (bitmap.width - crop) / 2, (bitmap.height - crop) / 2, crop, crop, 0, 0, canvas.width, canvas.height)
       } else context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-      const result = canvas.toDataURL('image/jpeg', Math.max(0.48, 0.78 - attempt * 0.08))
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('No se pudo reducir la imagen.')), 'image/jpeg', Math.max(0.48, 0.78 - attempt * 0.08)))
+      const result = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error('No se pudo leer la imagen reducida.')); reader.readAsDataURL(blob) })
       if (result.length <= 140_000) return result
     }
     throw new Error('La imagen sigue siendo demasiado grande. Prueba con otra.')
@@ -300,6 +307,7 @@ function App() {
   const dataRef = useRef(data)
   const remoteRecords = useRef<RecordMap>(new Map())
   const versions = useRef(new Map<string, number>())
+  const syncCursor = useRef<import('./financeCache').SyncCursor | null>(null)
   const expectedVersions = useRef(new Map<string, number>())
   const flushing = useRef(false)
   const modalOpener = useRef<HTMLElement | null>(null)
@@ -342,21 +350,35 @@ function App() {
     setLoaded(false)
     setLoadedUserId(null)
     setLoadError('')
-    loadFinanceData(db, userId).then(result => {
+    preparePrivateStorage(userId).then(() => {
+      if (!active) return null
+      return loadFinanceData(db, userId, readFinanceCache(userId))
+    }).then(async result => {
+      if (!result) return
       if (!active) return
-      writeFinanceCache(userId, result)
+      const pending = parsePendingChanges(userId, privateStorage.getItem(`miser-pending-${userId}`))
+      if (!pending) throw new Error('invalid-pending')
+      if (!writeFinanceCache(userId, result)) throw new Error('cache-failed')
+      await flushPrivateStorage()
+      if (!active) return
+      syncCursor.current = result.syncCursor
       setOfflineSince(null)
       remoteRecords.current = result.records
       versions.current = result.versions
       expectedVersions.current = new Map()
       const restored = new Map(result.records)
-        for (const [key, record, version] of readPendingChanges(userId)) {
+        for (const [key, record, version] of pending) {
           if (JSON.stringify(record?.value) === JSON.stringify(result.records.get(key)?.value)) continue
           if (record) restored.set(key, record)
           else restored.delete(key)
           expectedVersions.current.set(key, version)
         }
       const restoredData = inflateRecords(restored)
+      if (!expectedVersions.current.size && pending.length) {
+        privateStorage.removeItem(`miser-pending-${userId}`)
+        await flushPrivateStorage()
+        if (!active) return
+      }
       dataRef.current = restoredData
       setData(restoredData)
       if (result.profile) setProfile(result.profile)
@@ -387,7 +409,10 @@ function App() {
       setLoadError(code === 'permission-denied'
         ? 'Firestore denegó el acceso. Publica las reglas actualizadas de firestore.rules en Firebase Console → Firestore → Reglas y comprueba que tu correo esté verificado.'
         : code === 'unavailable' ? 'Firestore no está disponible. Revisa tu conexión e inténtalo de nuevo.'
-          : `No se pudo cargar tu información${code ? ` (${code})` : ''}. Revisa tu conexión y la configuración de Firebase.`)
+          : error instanceof Error && error.message === 'invalid-pending' ? 'La recuperación de cambios está dañada. No la hemos reemplazado. Exporta la recuperación antes de continuar.'
+            : error instanceof Error && error.message === 'invalid-data' ? 'Hay un registro con formato inválido. Tus datos no se han reemplazado. Exporta la recuperación y revisa ese registro antes de continuar.'
+            : error instanceof Error && error.message === 'cache-failed' ? 'No se pudo guardar una recuperación local segura. Revisa el espacio disponible; tus datos de Firebase siguen intactos.'
+              : `No se pudo cargar tu información${code ? ` (${code})` : ''}. Revisa tu conexión y la configuración de Firebase.`)
     })
     return () => { active = false }
   }, [userId, session?.user.verified, loadAttempt])
@@ -404,29 +429,48 @@ function App() {
     const changes = changedRecords(remoteRecords.current, flattenData(data))
     if (!changes.length) return
     try {
-      localStorage.setItem(`miser-pending-${userId}`, JSON.stringify({ changes: changes.map(([key, record]) => [key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0]) }))
+      privateStorage.setItem(`miser-pending-${userId}`, JSON.stringify({ uid: userId, changes: changes.map(([key, record]) => [key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0]) }))
     } catch { setSyncMessage('No se pudo guardar una copia local de los cambios pendientes. Exporta tus datos antes de cerrar.') }
     const timer = window.setTimeout(async () => {
       if (flushing.current) return
       flushing.current = true
+      let completed = false
       setSyncStatus('saving')
       try {
         while (dataRef.current) {
           if (firebaseAuth?.currentUser?.uid !== userId) return
-          const next = changedRecords(remoteRecords.current, flattenData(dataRef.current))[0]
-          if (!next) break
-          const [key, record] = next
-          const version = await saveFinanceRecord(db, userId, key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0)
-          if (firebaseAuth?.currentUser?.uid !== userId) return
-          if (record) remoteRecords.current.set(key, record)
-          else remoteRecords.current.delete(key)
-          versions.current.set(key, version)
-          expectedVersions.current.delete(key)
+          const batchData = dataRef.current
+          const batchChanges = changedRecords(remoteRecords.current, flattenData(batchData))
+          if (!batchChanges.length) break
+          privateStorage.setItem(`miser-pending-${userId}`, JSON.stringify({ uid: userId, changes: batchChanges.map(([key, record]) => [key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0]) }))
+          await flushPrivateStorage()
+          for (const [key, record] of batchChanges) {
+            if (firebaseAuth?.currentUser?.uid !== userId) return
+            const saved = await saveFinanceRecord(db, userId, key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0)
+            if (firebaseAuth?.currentUser?.uid !== userId) return
+            if (saved.record) remoteRecords.current.set(key, saved.record)
+            else remoteRecords.current.delete(key)
+            versions.current.set(key, saved.version)
+            expectedVersions.current.delete(key)
+            if (record?.kind === 'item' && saved.record?.value.imageUrl !== record.value.imageUrl && dataRef.current) {
+              const next: FinanceData = { ...dataRef.current, lists: dataRef.current.lists.map(list => ({ ...list, items: list.items.map(item =>
+                item.id === record.value.id && item.imageUrl === record.value.imageUrl ? { ...item, imageUrl: String(saved.record!.value.imageUrl) } : item) })) }
+              dataRef.current = next
+              setData(next)
+            }
+          }
+          if (batchData === dataRef.current) break
         }
-        localStorage.removeItem(`miser-pending-${userId}`)
-        writeFinanceCache(userId, { records: remoteRecords.current, versions: versions.current, profile })
+        const committedData = dataRef.current
+        if (!writeFinanceCache(userId, { records: remoteRecords.current, versions: versions.current, profile, syncCursor: syncCursor.current })) throw new Error('cache-failed')
+        await flushPrivateStorage()
+        if (dataRef.current === committedData) {
+          privateStorage.removeItem(`miser-pending-${userId}`)
+          await flushPrivateStorage()
+        }
         setSyncStatus('saved')
         setSyncMessage('')
+        completed = true
       } catch (error) {
         setSyncStatus('error')
         setSyncMessage(error instanceof Error && error.message === 'conflict' ? 'Otro dispositivo cambió el mismo registro. Exporta tus datos y recarga antes de continuar.' : 'No se pudieron guardar todos los cambios. Revisa tu conexión y vuelve a intentar.')
@@ -434,7 +478,8 @@ function App() {
         if (firebaseAuth?.currentUser?.uid === userId && dataRef.current) {
           const remaining = changedRecords(remoteRecords.current, flattenData(dataRef.current))
           try {
-            if (remaining.length) localStorage.setItem(`miser-pending-${userId}`, JSON.stringify({ uid: userId, changes: remaining.map(([key, record]) => [key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0]) }))
+            if (remaining.length) { privateStorage.setItem(`miser-pending-${userId}`, JSON.stringify({ uid: userId, changes: remaining.map(([key, record]) => [key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0]) })); await flushPrivateStorage() }
+            if (completed && remaining.length) { setSyncStatus('pending'); setSaveAttempt(value => value + 1) }
           } catch { setSyncMessage('Exporta tus datos antes de cerrar: no se pudo conservar la recuperación local.') }
         }
         flushing.current = false
@@ -470,7 +515,7 @@ function App() {
   const today = new Date()
   const currentMonth = monthId(today)
   const monthBudget = data?.budgets.find(b => b.month === currentMonth) ?? { month: currentMonth, totalLimit: 1200, categoryLimits: { Comida: 350, Hogar: 600, Transporte: 100, Salud: 150 } }
-  const monthTransactions = (data?.transactions ?? []).filter(t => t.date.startsWith(currentMonth))
+  const monthTransactions = useMemo(() => (data?.transactions ?? []).filter(t => t.date.startsWith(currentMonth)), [data?.transactions, currentMonth])
   const expenses = sumMoney(monthTransactions.filter(t => t.type === 'expense').map(t => t.amount))
 
   const modify = (fn: (old: FinanceData) => FinanceData) => {
@@ -482,6 +527,7 @@ function App() {
     if (firebaseConfigured) setSyncStatus('pending')
   }
   const exportPayload = async (payload: unknown, prefix = 'miser') => {
+    if (!window.confirm('Esta copia contiene información financiera sin cifrar. Compártela solo con una aplicación o ubicación de confianza. ¿Continuar?')) return
     const json = JSON.stringify(payload, null, 2)
     if (Capacitor.isNativePlatform()) {
       try {
@@ -501,15 +547,25 @@ function App() {
   const exportRecovery = async () => {
     if (!userId) return
     let pendingRaw: string | null = null
-    try { pendingRaw = localStorage.getItem(`miser-pending-${userId}`) } catch { /* Export any valid cache that is still accessible. */ }
+    try { pendingRaw = privateStorage.getItem(`miser-pending-${userId}`) ?? localStorage.getItem(`miser-pending-${userId}`) } catch { /* Export any valid cache that is still accessible. */ }
     const cache = readFinanceCache(userId)
-    if (!cache && !pendingRaw) { showToast('No hay una copia de recuperación en este dispositivo.'); return }
-    await exportPayload({ uid: userId, exportedAt: new Date().toISOString(), cachedData: cache?.data ?? null, cachedAt: cache?.cachedAt ?? null, changes: readPendingChanges(userId), pendingRaw }, 'miser-recuperacion')
+    let legacyCacheRaw: string | null = null
+    try { legacyCacheRaw = localStorage.getItem(`miser-finance-cache-${userId}`) } catch { /* Never delete inaccessible recovery data. */ }
+    if (!cache && !pendingRaw && !legacyCacheRaw) { showToast('No hay una copia de recuperación en este dispositivo.'); return }
+    await exportPayload({ uid: userId, exportedAt: new Date().toISOString(), cachedData: cache?.data ?? null, cachedAt: cache?.cachedAt ?? null, changes: readPendingChanges(userId), pendingRaw, legacyCacheRaw }, 'miser-recuperacion')
   }
   const confirmDelete = (label: string, action: () => void) => { if (window.confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)) action() }
   const signOut = async () => {
     if (!firebaseAuth) return
-    try { await firebaseSignOut(firebaseAuth); setPage('overview') }
+    if ((flushing.current || userId && privateStorage.getItem(`miser-pending-${userId}`)) && !window.confirm('Quedan cambios sin sincronizar. La recuperación se conservará en este dispositivo. ¿Cerrar sesión?')) return
+    try {
+      await flushPrivateStorage()
+      const previousUid = userId
+      await firebaseSignOut(firebaseAuth)
+      if (previousUid && !privateStorage.getItem(`miser-pending-${previousUid}`)) await clearPrivateCache(previousUid)
+      forgetPrivateMemory()
+      setPage('overview')
+    }
     catch { showToast('No se pudo cerrar sesión. Revisa tu conexión e inténtalo de nuevo.') }
   }
   const leaveDemo = () => { setDemoEntryOpen(true); setPage('overview'); setModal(null) }
@@ -521,7 +577,7 @@ function App() {
       await saveUserProfile(firestore, userId, next)
       if (firebaseAuth.currentUser?.uid !== userId) throw new Error('El perfil se guardó, pero tu sesión cambió. Vuelve a iniciar sesión.')
       const cache = readFinanceCache(userId)
-      if (cache) writeFinanceCache(userId, { ...cache, profile: next })
+      if (cache) { if (!writeFinanceCache(userId, { ...cache, profile: next })) throw new Error('No se pudo guardar la copia local del perfil.'); await flushPrivateStorage() }
     } else {
       try { localStorage.setItem(demoProfileKey, JSON.stringify(next)) }
       catch { throw new Error('No hay espacio para guardar el perfil en este navegador. Prueba con una foto más pequeña.') }
@@ -536,6 +592,14 @@ function App() {
   const requestPasswordChange = async () => {
     if (!firebaseAuth || !session?.user.email || firebaseAuth.currentUser?.uid !== userId) throw new Error('Vuelve a iniciar sesión antes de solicitar el enlace.')
     await sendPasswordResetEmail(firebaseAuth, session.user.email)
+  }
+  const clearLocalData = async () => {
+    if (!userId || !firebaseAuth) throw new Error('Esta opción requiere una cuenta conectada.')
+    if (flushing.current || dataRef.current && changedRecords(remoteRecords.current, flattenData(dataRef.current)).length || readPendingChanges(userId).length) throw new Error('Hay cambios pendientes. Sincroniza o exporta antes de borrar la copia local.')
+    if (!window.confirm('¿Borrar la copia local y cerrar sesión? Tus datos de Firebase se conservarán.')) return
+    await clearPrivateCache(userId)
+    await firebaseSignOut(firebaseAuth)
+    forgetPrivateMemory()
   }
   const saveTransaction = (item: Transaction) => modify(old => ({ ...old, transactions: [item, ...old.transactions.filter(t => t.id !== item.id)] }))
   const saveEvent = (item: CalendarEvent) => modify(old => ({ ...old, events: [...old.events.filter(e => e.id !== item.id), item].sort((a, b) => a.date.localeCompare(b.date)) }))
@@ -579,13 +643,14 @@ function App() {
       {!isDemo && syncStatus !== 'saved' && <div className={`sync-banner ${syncStatus === 'error' ? 'sync-banner-error' : ''}`} role={syncStatus === 'error' ? 'alert' : 'status'}><span>{syncStatus === 'error' ? syncMessage : syncStatus === 'saving' ? 'Guardando cambios…' : 'Cambios pendientes de guardar…'}</span>{syncStatus === 'error' && <div><button onClick={() => setSaveAttempt(value => value + 1)}>Reintentar</button><button onClick={exportData}>Exportar copia</button></div>}</div>}
       <div key={page} className="t-page-slide app-page-transition" data-page="1">
         <section className="t-page" data-page-id="1" aria-label={title}>
+        <Suspense fallback={<div className="page-wrap" role="status">Cargando pantalla…</div>}>
       {page === 'overview' && <Overview data={data} expenses={expenses} currentMonth={currentMonth} onAdd={() => openModal({ kind: 'transaction' })} onEditTransaction={item => openModal({ kind: 'transaction', item })} onNavigate={setPage} />}
       {page === 'activity' && <Activity data={data} query={search} setQuery={setSearch} onAdd={() => openModal({ kind: 'transaction' })} onEdit={item => openModal({ kind: 'transaction', item })} onDelete={deleteTransaction} />}
        {page === 'calendar' && <CalendarPage data={data} onAdd={date => openModal({ kind: 'event', date })} onEdit={item => openModal({ kind: 'event', item })} onDelete={deleteEvent} />}
        {page === 'goals' && <GoalsPage data={data} onAdd={() => openModal({ kind: 'goal' })} onEdit={item => openModal({ kind: 'goal', item })} onToggle={item => saveGoal({ ...item, completed: !goalCompleted(item) })} onDelete={deleteGoal} />}
       {page === 'shopping' && <ShoppingPage data={data} modify={modify} onAdd={() => openModal({ kind: 'list' })} onEdit={item => openModal({ kind: 'list', item })} onDelete={deleteList} onAddItem={listId => openModal({ kind: 'shoppingItem', listId })} onEditItem={(listId, item) => openModal({ kind: 'shoppingItem', listId, item })} />}
-       {page === 'settings' && <SettingsPage key={userId ?? 'demo'} isDemo={isDemo} email={session?.user.email ?? ''} profile={profile} onSaveProfile={saveProfile} preferences={preferences} onPreferencesChange={changePreferences} passwordAccount={session?.user.passwordAccount ?? false} onPasswordChange={requestPasswordChange} syncStatus={syncStatus} syncMessage={syncMessage} onRetry={() => offlineSince ? setLoadAttempt(value => value + 1) : setSaveAttempt(value => value + 1)} onExport={exportData} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => openModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} onExitDemo={leaveDemo} />}
-        </section>
+       {page === 'settings' && <SettingsPage key={userId ?? 'demo'} isDemo={isDemo} email={session?.user.email ?? ''} profile={profile} onSaveProfile={saveProfile} preferences={preferences} onPreferencesChange={changePreferences} passwordAccount={session?.user.passwordAccount ?? false} onPasswordChange={requestPasswordChange} syncStatus={syncStatus} syncMessage={syncMessage} onRetry={() => offlineSince ? setLoadAttempt(value => value + 1) : setSaveAttempt(value => value + 1)} onExport={exportData} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={() => openModal({ kind: 'budget', item: monthBudget })} onLogout={signOut} onExitDemo={leaveDemo} onClearLocal={clearLocalData} />}
+        </Suspense></section>
       </div>
     </main>
     {compactLayout && <nav className="mobile-navigation" aria-label="Navegación principal" inert={!!modal}>{navItems.map(item => { const Icon = item.icon; return <button type="button" key={item.id} aria-current={page === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon size={21} aria-hidden="true" /><span>{item.id === 'shopping' ? 'Compras' : item.id === 'goals' ? 'Objetivos' : item.id === 'activity' ? 'Movimientos' : item.label}</span></button> })}</nav>}
@@ -731,11 +796,12 @@ function GoalsPage({ data, onAdd, onEdit, onToggle, onDelete }: { data: FinanceD
   </div>
 }
 
-function SettingsPage({ isDemo, email, profile, onSaveProfile, preferences, onPreferencesChange, passwordAccount, onPasswordChange, syncStatus, syncMessage, onRetry, onExport, darkMode, onDarkModeChange, onBudget, onLogout, onExitDemo }: {
+function SettingsPage({ isDemo, email, profile, onSaveProfile, preferences, onPreferencesChange, passwordAccount, onPasswordChange, syncStatus, syncMessage, onRetry, onExport, darkMode, onDarkModeChange, onBudget, onLogout, onExitDemo, onClearLocal }: {
   isDemo: boolean; email: string; profile: UserProfile; onSaveProfile: (draft: UserProfile) => Promise<UserProfile>;
   preferences: Preferences; onPreferencesChange: (next: Preferences) => void; passwordAccount: boolean; onPasswordChange: () => Promise<void>;
   syncStatus: 'saved' | 'pending' | 'saving' | 'error'; syncMessage: string; onRetry: () => void; onExport: () => void;
   darkMode: boolean; onDarkModeChange: (enabled: boolean) => void; onBudget: () => void; onLogout: () => void; onExitDemo: () => void;
+  onClearLocal: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(profile)
   const [saving, setSaving] = useState(false)
@@ -824,6 +890,7 @@ function SettingsPage({ isDemo, email, profile, onSaveProfile, preferences, onPr
       <div className="settings-section"><div className="settings-section-icon"><Eye size={18} /></div><div className="settings-copy"><h3>Movimiento reducido</h3><p>Reduce las animaciones. También respetamos la preferencia de tu sistema.</p></div><button className={`theme-toggle ${preferences.reducedMotion ? 'theme-toggle-on' : ''}`} type="button" role="switch" aria-checked={preferences.reducedMotion} aria-label="Movimiento reducido" onClick={() => onPreferencesChange({ ...preferences, reducedMotion: !preferences.reducedMotion })}><span /></button></div>
     </section>
     <AndroidUpdateSettings />
+    {!isDemo && <DeviceSecuritySettings onClearLocal={onClearLocal} />}
     <section className="panel settings-panel settings-data" aria-labelledby="data-settings-heading">
       <h2 id="data-settings-heading" className="settings-group-heading">Tus finanzas y tus datos</h2>
       <div className="settings-section"><div className="settings-section-icon"><Wallet size={18} /></div><div className="settings-copy"><h3>Presupuesto mensual</h3><p>Configura tu límite general y los límites de cada categoría.</p></div><button className="btn btn-soft" onClick={onBudget}>Editar presupuesto</button></div>
@@ -907,7 +974,7 @@ function EditModal({ modal, month, onClose, onSaveTransaction, onSaveEvent, onSa
      if (modal.kind === 'shoppingItem') {
       const links = purchaseLinksText.split(/\r?\n/).map(link => link.trim()).filter(Boolean)
       if (links.some(link => !webUrl(link))) { setFormError('Cada enlace de compra debe comenzar con https:// o http://.'); return }
-      if (imageUrl && !shoppingImageSrc(imageUrl)) { setFormError('El enlace de la imagen debe comenzar con https:// o http://.'); return }
+      if (imageUrl && !shoppingImageSrc(imageUrl) && !mediaId(imageUrl)) { setFormError('El enlace de la imagen debe comenzar con https://.'); return }
        onSaveShoppingItem(modal.listId, { id: (editing as ShoppingItem | undefined)?.id ?? id(), name: title.trim(), done: (editing as ShoppingItem | undefined)?.done ?? false, description: description.trim() || undefined, quantity: quantity.trim() || undefined, amount: amount ? money(numericAmount) : undefined, imageUrl: imageUrl || undefined, purchaseLinks: links })
       onClose()
       return
@@ -931,7 +998,7 @@ function EditModal({ modal, month, onClose, onSaveTransaction, onSaveEvent, onSa
       <label>Nombre del artículo<input required value={title} onChange={e => setTitle(e.target.value)} placeholder="Ej. Teclado mecánico" /></label>
       <label>Descripción y detalles <span className="optional">· opcional</span><textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} placeholder="Modelo, color, características o por qué te interesa…" /></label>
       <div className="form-row"><label>Cantidad <span className="optional">· opcional</span><input value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="Ej. 1 unidad" /></label><label>Precio estimado (USD) <span className="optional">· opcional</span><input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" /></label></div>
-      <div className="shopping-image-field"><span><ImagePlus size={16} /> Imagen de referencia</span>{shoppingImageSrc(imageUrl) && <div className="shopping-image-preview"><img src={shoppingImageSrc(imageUrl)!} alt="Vista previa del artículo" /><button type="button" onClick={() => setImageUrl('')}>Quitar imagen</button></div>}<label>Subir imagen desde el dispositivo<input type="file" accept="image/jpeg,image/png,image/webp,image/avif" disabled={imageBusy} onChange={e => { void uploadImage(e.target.files?.[0]); e.target.value = '' }} /></label><label>O pegar enlace de imagen<input type="url" value={imageUrl.startsWith('data:') ? '' : imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://tienda.com/imagen.jpg" /></label><small>Las imágenes subidas se reducen para ocupar menos espacio.</small></div>
+      <div className="shopping-image-field"><span><ImagePlus size={16} /> Imagen de referencia</span>{(shoppingImageSrc(imageUrl) || mediaId(imageUrl)) && <div className="shopping-image-preview"><FinanceImage source={imageUrl} alt="Vista previa del artículo" size={128} /><button type="button" onClick={() => setImageUrl('')}>Quitar imagen</button></div>}<label>Subir imagen desde el dispositivo<input type="file" accept="image/jpeg,image/png,image/webp,image/avif" disabled={imageBusy} onChange={e => { void uploadImage(e.target.files?.[0]); e.target.value = '' }} /></label><label>O pegar enlace de imagen<input type="url" value={imageUrl.startsWith('data:') || mediaId(imageUrl) ? '' : imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://tienda.com/imagen.jpg" /></label><small>Las imágenes subidas se reducen y se cargan solo cuando las necesitas.</small></div>
       <label>Enlaces de compra <span className="optional">· opcional</span><textarea rows={3} value={purchaseLinksText} onChange={e => setPurchaseLinksText(e.target.value)} placeholder={'https://tienda.com/producto\nhttps://otra-tienda.com/producto'} /></label><p className="modal-help">Pega un enlace por línea. Podrás abrirlos desde la lista cuando quieras comparar opciones.</p>
     </>}
     {modal.kind === 'budget' && <><label>Límite total del mes (USD)<input type="number" min="0" step="0.01" required value={amount} onChange={e => setAmount(e.target.value)} /></label><label>Límites por categoría <span className="optional">· separados por coma</span><textarea rows={3} value={limitsText} onChange={e => setLimitsText(e.target.value)} placeholder="Comida: 350, Hogar: 600" /></label><p className="modal-help">Escribe cada categoría como <strong>Nombre: monto</strong>. Se guardará para el mes actual.</p></>}
@@ -941,5 +1008,5 @@ function EditModal({ modal, month, onClose, onSaveTransaction, onSaveEvent, onSa
 }
 
 export default function MiSerApp() {
-  return <AndroidUpdatesProvider><App /></AndroidUpdatesProvider>
+  return <DeviceSecurityGate><AndroidUpdatesProvider><App /></AndroidUpdatesProvider></DeviceSecurityGate>
 }

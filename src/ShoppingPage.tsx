@@ -1,6 +1,7 @@
 import { Check, Ellipsis, Link2, ListChecks, Pencil, Plus, ShoppingBag, X } from 'lucide-react'
 import type { FinanceData, ShoppingItem, ShoppingList } from './types'
 import './ShoppingPage.css'
+import { FinanceImage } from './FinanceImage'
 
 type ShoppingPageProps = {
   data: FinanceData
@@ -19,7 +20,6 @@ const webUrl = (value: string) => {
     return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null
   } catch { return null }
 }
-const shoppingImageSrc = (value?: string) => value?.startsWith('data:image/jpeg;base64,') ? value : value ? webUrl(value) : null
 const linkLabel = (value: string) => new URL(value).hostname.replace(/^www\./, '')
 
 export default function ShoppingPage({ data, modify, onAdd, onEdit, onDelete, onAddItem, onEditItem }: ShoppingPageProps) {
@@ -66,14 +66,13 @@ export default function ShoppingPage({ data, modify, onAdd, onEdit, onDelete, on
           </header>
           <div className="miser-shopping-progress" aria-hidden="true"><span style={{ width: `${list.items.length ? done / list.items.length * 100 : 0}%` }} /></div>
           {list.items.length ? <ul className="miser-shopping-items">{list.items.map(item => {
-            const imageSrc = shoppingImageSrc(item.imageUrl)
             const links = (item.purchaseLinks ?? []).flatMap(link => { const href = webUrl(link); return href ? [href] : [] })
             return <li className={`miser-shopping-item ${item.done ? 'miser-shopping-item-done' : ''}`} key={item.id}>
               <button className="miser-shopping-check" type="button" aria-pressed={item.done} onClick={() => toggleItem(list.id, item.id)} aria-label={item.done ? `Marcar ${item.name} pendiente` : `Marcar ${item.name} comprado`}><span>{item.done && <Check size={15} aria-hidden="true" />}</span></button>
               <div className="miser-shopping-item-copy">
                 <button className="miser-shopping-item-name" type="button" onClick={() => onEditItem(list.id, item)} aria-label={`Editar ${item.name}`}><span>{item.name}</span><Pencil size={14} aria-hidden="true" /></button>
                 <div className="miser-shopping-item-details">
-                  {imageSrc && <img className="miser-shopping-image" src={imageSrc} alt={`Imagen de ${item.name}`} width={48} height={48} loading="lazy" />}
+                  <FinanceImage className="miser-shopping-image" source={item.imageUrl} alt={`Imagen de ${item.name}`} />
                   <div>{item.description && <p>{item.description}</p>}{(item.quantity || item.amount !== undefined) && <small>{[item.quantity, item.amount !== undefined ? currency(item.amount) : ''].filter(Boolean).join(' · ')}</small>}</div>
                 </div>
                 {links.length > 0 && <div className="miser-shopping-links">{links.map((href, linkIndex) => <a key={`${href}-${linkIndex}`} href={href} target="_blank" rel="noopener noreferrer" title={href}><Link2 size={14} aria-hidden="true" /><span>{linkLabel(href)}</span></a>)}</div>}

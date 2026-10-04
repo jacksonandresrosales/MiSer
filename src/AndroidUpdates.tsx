@@ -3,6 +3,7 @@ import { App as NativeApp } from '@capacitor/app'
 import { Download, RefreshCw, X } from 'lucide-react'
 import { AndroidUpdater, androidUpdatesSupported, updateErrorMessage, type UpdateStatus } from './androidUpdater'
 import './AndroidUpdates.css'
+import { shouldCheckUpdate } from './updateCooldown'
 
 type Updates = {
   status: UpdateStatus | null
@@ -23,6 +24,7 @@ export function AndroidUpdatesProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState(false)
   const [noticeRequest, setNoticeRequest] = useState(0)
   const locked = useRef(false)
+  const lastAttempt = useRef<number | null>(null)
   const mounted = useRef(false)
   const supported = androidUpdatesSupported()
   const reportError = (failure: unknown) => { if (mounted.current) { setMessage(updateErrorMessage(failure)); setError(true) } }
@@ -37,8 +39,11 @@ export function AndroidUpdatesProvider({ children }: { children: ReactNode }) {
         setStatus(current => current?.currentVersionCode === local.currentVersionCode
           ? { ...current, notificationsEnabled: local.notificationsEnabled, backgroundEnabled: local.backgroundEnabled }
           : local)
-        setBusy('checking')
+        if (manual) setBusy('checking')
       }
+      const now = Date.now()
+      if (!shouldCheckUpdate(manual, lastAttempt.current, now)) return
+      lastAttempt.current = now
       const next = await AndroidUpdater.check()
       if (mounted.current) {
         setStatus(next)
@@ -55,7 +60,7 @@ export function AndroidUpdatesProvider({ children }: { children: ReactNode }) {
     const listener = NativeApp.addListener('appStateChange', ({ isActive }) => { if (isActive) void check() })
     const notification = AndroidUpdater.addListener('updateRequested', () => {
       setNoticeRequest(value => value + 1)
-      void check()
+      void check(true)
     })
     return () => {
       mounted.current = false
@@ -125,7 +130,7 @@ export function AndroidUpdateSettingsView({ updates }: { updates: Updates }) {
   return <section className="panel settings-panel android-update-settings" aria-labelledby="android-update-heading">
     <h2 id="android-update-heading" className="settings-group-heading">Actualizaciones de MiSer</h2>
     <p>{status ? `Versión instalada: ${status.currentVersionName} · compilación ${status.currentVersionCode}` : 'Comprueba la versión instalada y las actualizaciones publicadas.'}</p>
-    <p>Al abrir la app buscamos versiones nuevas. Los avisos en segundo plano comprueban cada 6 horas con conexión; Android puede retrasarlos para ahorrar batería. No se descarga nada sin que lo pidas.</p>
+    <p>Al abrir MiSer buscamos versiones nuevas como máximo una vez por hora. Puedes buscar manualmente cuando quieras. Los avisos en segundo plano comprueban cada 6 horas con conexión y batería suficiente; Android puede retrasarlos. No se descarga nada sin que lo pidas.</p>
     {status?.available && status.update && <p><strong>Nueva versión: {status.update.versionName}</strong> · {(status.update.size / 1024 / 1024).toFixed(1)} MB</p>}
     <div className="android-update-actions">
       <button className="btn btn-soft" type="button" disabled={!!busy} onClick={() => void updates.check(true)}><RefreshCw size={16} aria-hidden="true" />{busy === 'checking' ? 'Comprobando…' : 'Buscar actualización'}</button>
