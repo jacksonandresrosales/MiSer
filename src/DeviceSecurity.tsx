@@ -47,7 +47,8 @@ export function DeviceSecurityGate({ children }: { children: ReactNode }) {
   const configure = async (enabled: boolean) => { const next = await MiSerSecurity.configureLock({ enabled }); setStatus(next) }
   return <SecurityContext.Provider value={{ status, configure }}>
     {opened && <div hidden={!visible}>{children}</div>}
-    {!visible && <main className="device-lock-screen"><section className="device-lock-content" aria-labelledby="device-lock-title">
+    {!visible && status === null && !message && <div className="device-lock-splash" role="status" aria-label="Abriendo MiSer" />}
+    {!visible && (status !== null || !!message) && <main className="device-lock-screen"><section className="device-lock-content" aria-labelledby="device-lock-title">
       <LockKeyhole size={36} aria-hidden="true" /><h1 id="device-lock-title">Tu espacio está protegido</h1><p>Desbloquea MiSer para ver tus finanzas.</p>
       <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void unlock()}>{busy ? 'Comprobando…' : 'Desbloquear MiSer'}</button>
       {message && <p role="alert">{message}</p>}

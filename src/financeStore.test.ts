@@ -36,7 +36,7 @@ mock.module('firebase/firestore/lite', { namedExports: {
   }),
   serverTimestamp: () => new Stamp(20, 0), setDoc: async () => {}, writeBatch: () => ({ set() {}, commit: async () => {} }),
 } })
-const { loadFinanceData, saveFinanceRecord } = await import('./financeStore.ts')
+const { loadFinanceData, saveFinanceRecord, saveFinanceRecords } = await import('./financeStore.ts')
 const db = {} as Parameters<typeof loadFinanceData>[0]
 const sample = (id: string, amount = 1) => ({ kind: 'transaction', value: { id, title: 'Movimiento', type: 'income', category: 'Trabajo', amount, date: '2026-10-03' }, version: 1, updatedAt: new Stamp(10, 0) })
 beforeEach(() => { documents = new Map(); metadata = { schemaVersion: 2, syncProtocol: 1, updatedAt: new Stamp(10, 0) }; reads = []; denyMedia = false })
@@ -66,6 +66,17 @@ test('bad cloud data and optimistic conflicts cannot silently overwrite records'
   const saved = await saveFinanceRecord(db, 'alice', 'transaction_one', record, 1)
   assert.equal(saved.version, 2)
   assert.equal(documents.get('transaction_one')!.value, record.value)
+})
+
+test('a group of records is saved together, and one conflict leaves every record untouched', async () => {
+  documents.set('transaction_a', sample('a'))
+  const edit = (id: string, amount: number) => ({ kind: 'transaction' as const, value: { ...sample(id).value, amount } })
+  await assert.rejects(saveFinanceRecords(db, 'alice', [{ key: 'transaction_a', record: edit('a', 3), expectedVersion: 1 }, { key: 'transaction_b', record: edit('b', 4), expectedVersion: 1 }]), /conflict/)
+  assert.equal((documents.get('transaction_a')!.value as { amount: number }).amount, 1)
+  assert.equal(documents.has('transaction_b'), false)
+  const saved = await saveFinanceRecords(db, 'alice', [{ key: 'transaction_a', record: edit('a', 3), expectedVersion: 1 }, { key: 'transaction_b', record: edit('b', 4), expectedVersion: 0 }])
+  assert.deepEqual(saved.map(entry => entry.version), [2, 1])
+  assert.equal((documents.get('transaction_b')!.value as { amount: number }).amount, 4)
 })
 
 test('old rules without media keep inline photos, while conflicts still reject the write', async () => {

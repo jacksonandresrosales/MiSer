@@ -57,30 +57,52 @@ export async function saveUserProfile(db: Firestore, uid: string, profile: UserP
   await setDoc(doc(db, 'finance_data', uid), { profile: validateProfile(profile) }, { merge: true })
 }
 
-export async function saveFinanceRecord(db: Firestore, uid: string, key: string, record: FinanceRecord | null, expectedVersion: number): Promise<{ version: number; record: FinanceRecord | null }> {
-  if (!validKey(key) || !validVersion(expectedVersion) || expectedVersion >= Number.MAX_SAFE_INTEGER || record !== null && !validRecord(key, record)) throw new Error('invalid-data')
-  if (record?.kind === 'budget' && Object.keys(record.value.categoryLimits as object).length > 10) throw new Error('Usa como máximo 10 categorías por presupuesto.')
-  const reference = doc(recordsPath(db, uid), key)
-  const separated = await separateRecordImage(record)
+export type RecordWrite = { key: string; record: FinanceRecord | null; expectedVersion: number }
+export type SavedRecord = { version: number; record: FinanceRecord | null }
+/** Each record may add a media write; this keeps a transaction well under Firestore's 500-write limit. */
+export const maxRecordsPerTransaction = 150
+
+/**
+ * Saves several records in one transaction: every version is checked first, then all writes and a single root
+ * update are committed together. A conflict on any record rejects the whole group, so nothing is half-written.
+ */
+export async function saveFinanceRecords(db: Firestore, uid: string, writes: RecordWrite[]): Promise<SavedRecord[]> {
+  if (writes.length > maxRecordsPerTransaction) throw new Error('invalid-data')
+  for (const { key, record, expectedVersion } of writes) {
+    if (!validKey(key) || !validVersion(expectedVersion) || expectedVersion >= Number.MAX_SAFE_INTEGER || record !== null && !validRecord(key, record)) throw new Error('invalid-data')
+    if (record?.kind === 'budget' && Object.keys(record.value.categoryLimits as object).length > 10) throw new Error('Usa como máximo 10 categorías por presupuesto.')
+  }
+  const separated = await Promise.all(writes.map(write => separateRecordImage(write.record)))
   const commit = (prepared: typeof separated) => runTransaction(db, async transaction => {
-    const current = await transaction.get(reference)
-    if (current.exists()) parseCloudRecord(key, current.data())
-    if ((current.data()?.version ?? 0) !== expectedVersion) throw new Error('conflict')
-    const version = expectedVersion + 1
-    if (prepared.media && current.data()?.value?.imageUrl !== prepared.record?.value.imageUrl) {
-      transaction.set(doc(db, 'finance_data', uid, 'media', prepared.media.id), { imageUrl: prepared.media.imageUrl, updatedAt: serverTimestamp() })
-    }
-    transaction.set(reference, prepared.record ? { ...prepared.record, version, updatedAt: serverTimestamp() } : { deleted: true, version, updatedAt: serverTimestamp() })
-    transaction.set(doc(db, 'finance_data', uid), { schemaVersion: 2, syncProtocol: 1, updatedAt: serverTimestamp() }, { merge: true })
-    return { version, record: prepared.record }
+    const references = writes.map(write => doc(recordsPath(db, uid), write.key))
+    const current = await Promise.all(references.map(reference => transaction.get(reference)))
+    current.forEach((snapshot, index) => {
+      if (snapshot.exists()) parseCloudRecord(writes[index].key, snapshot.data())
+      if ((snapshot.data()?.version ?? 0) !== writes[index].expectedVersion) throw new Error('conflict')
+    })
+    return writes.map((write, index) => {
+      const version = write.expectedVersion + 1
+      const { record, media } = prepared[index]
+      if (media && current[index].data()?.value?.imageUrl !== record?.value.imageUrl) {
+        transaction.set(doc(db, 'finance_data', uid, 'media', media.id), { imageUrl: media.imageUrl, updatedAt: serverTimestamp() })
+      }
+      transaction.set(references[index], record ? { ...record, version, updatedAt: serverTimestamp() } : { deleted: true, version, updatedAt: serverTimestamp() })
+      if (index === writes.length - 1) transaction.set(doc(db, 'finance_data', uid), { schemaVersion: 2, syncProtocol: 1, updatedAt: serverTimestamp() }, { merge: true })
+      return { version, record }
+    })
   })
   try { return await commit(separated) }
   catch (error) {
     // Older deployed rules have no media collection. The rejected transaction is atomic;
     // retry the supported inline format without changing ownership or version checks.
-    if (separated.media && error && typeof error === 'object' && 'code' in error && error.code === 'permission-denied') return commit({ record, media: null })
+    if (separated.some(entry => entry.media) && error && typeof error === 'object' && 'code' in error && error.code === 'permission-denied') return commit(writes.map(write => ({ record: write.record, media: null })))
     throw error
   }
+}
+
+export async function saveFinanceRecord(db: Firestore, uid: string, key: string, record: FinanceRecord | null, expectedVersion: number): Promise<SavedRecord> {
+  const [saved] = await saveFinanceRecords(db, uid, [{ key, record, expectedVersion }])
+  return saved
 }
 
 export { changedRecords, flattenData }
