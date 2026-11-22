@@ -3,7 +3,7 @@ import { goalCompleted } from '../financeData'
 import type { AnnualGoal, FinanceData } from '../types'
 import { EmptyState, PageHeading } from '../components/common'
 
-type Props = { data: FinanceData; onAdd: () => void; onEdit: (goal: AnnualGoal) => void; onToggle: (goal: AnnualGoal) => void; onDelete: (id: string) => void }
+type Props = { data: FinanceData; onAdd: () => void; onEdit: (goal: AnnualGoal) => void; onToggle: (goal: AnnualGoal) => void }
 
 export default function GoalsPage({ data, onAdd, onEdit, onToggle }: Props) {
   const completed = data.goals.filter(goalCompleted).length

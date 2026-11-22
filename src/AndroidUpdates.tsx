@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { App as NativeApp } from '@capacitor/app'
 import { Download, RefreshCw, X } from 'lucide-react'
 import { AndroidUpdater, androidUpdatesSupported, updateErrorMessage, type UpdateStatus } from './androidUpdater'
-import './AndroidUpdates.css'
 import { shouldCheckUpdate } from './updateCooldown'
 
 type Updates = {

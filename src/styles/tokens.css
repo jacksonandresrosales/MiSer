@@ -1,0 +1,113 @@
+/*
+  MiSer · Obsidiana y ámbar
+  Dark-first: the bare :root holds the dark palette. Light values apply only with data-theme="light".
+  Text/background pairs below meet WCAG AA (4.5:1 for text, 3:1 for controls) in both themes.
+*/
+:root {
+  color-scheme: dark;
+  /* Surfaces, from the page up */
+  --bg: #0d0c0b;
+  --surface: #171514;
+  --surface-2: #221f1d;
+  --surface-3: #2c2825;
+  --line: #2c2825;
+  --line-strong: #3d3833;
+  --glass: rgb(26 24 22 / 0.78);
+  --scrim: rgb(5 4 3 / 0.66);
+  /* Text */
+  --fg: #f3eee8;
+  --muted: #b0a79d;
+  --subtle: #8f877e;
+  /* Accent: fill and text variants */
+  --accent: #f0b44c;
+  --accent-hover: #f5c46b;
+  --accent-text: #f0b44c;
+  --accent-soft: rgb(240 180 76 / 0.14);
+  --on-accent: #1a1208;
+  /* Meaning */
+  --income: #5fd3a3;
+  --income-soft: rgb(95 211 163 / 0.14);
+  --expense: #ff8a7a;
+  --expense-soft: rgb(255 138 122 / 0.14);
+  --warn: #f0b44c;
+  --danger: #ff8a7a;
+  --danger-fill: #e5604f;
+  --on-danger: #1d0905;
+  --cat-personal: #b9a4ff;
+  --cat-work: #6cc4ff;
+  --cat-health: #5fd3a3;
+  --cat-payment: #f0b44c;
+  --focus: #f5c46b;
+  /* Hero */
+  --hero: linear-gradient(160deg, #211c17 0%, #141210 70%);
+  --glow: rgb(240 180 76 / 0.35);
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 32px rgb(0 0 0 / 0.28);
+  --shadow-float: 0 16px 40px rgb(0 0 0 / 0.45);
+
+  /* Type */
+  --font-display: "Sora Variable", "Sora", system-ui, sans-serif;
+  --font-body: "Manrope Variable", "Manrope", system-ui, sans-serif;
+  --text-xs: 0.75rem;   /* 12 */
+  --text-sm: 0.875rem;  /* 14 */
+  --text-md: 1rem;      /* 16 */
+  --text-lg: 1.25rem;   /* 20 */
+  --text-xl: 1.5rem;    /* 24 */
+  --text-2xl: 2rem;     /* 32 */
+  --text-3xl: 3rem;     /* 48 */
+
+  /* Space (base 4) and shape */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+  --tap: 48px;
+
+  /* Motion */
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --duration-slow: 400ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f4f0;
+  --surface: #ffffff;
+  --surface-2: #f0ece6;
+  --surface-3: #e6e0d8;
+  --line: #e6e0d8;
+  --line-strong: #d2c9be;
+  --glass: rgb(255 255 255 / 0.82);
+  --scrim: rgb(28 25 21 / 0.42);
+  --fg: #1c1915;
+  --muted: #5f574e;
+  --subtle: #746b61;
+  --accent: #e8a33a;
+  --accent-hover: #f0b44c;
+  --accent-text: #8f5409;
+  --accent-soft: rgb(232 163 58 / 0.16);
+  --on-accent: #1a1208;
+  --income: #1f7a52;
+  --income-soft: rgb(31 122 82 / 0.1);
+  --expense: #c03a2b;
+  --expense-soft: rgb(192 58 43 / 0.08);
+  --warn: #8f5409;
+  --danger: #b3321f;
+  --danger-fill: #c03a2b;
+  --on-danger: #ffffff;
+  --cat-personal: #6b4fd8;
+  --cat-work: #1f6fb2;
+  --cat-health: #1f7a52;
+  --cat-payment: #b06a10;
+  --focus: #8f5409;
+  --hero: linear-gradient(160deg, #2a221a 0%, #1a1613 75%);
+  --glow: rgb(240 180 76 / 0.3);
+  --shadow-card: 0 1px 2px rgb(28 25 21 / 0.06), 0 8px 24px rgb(28 25 21 / 0.06);
+  --shadow-float: 0 12px 32px rgb(28 25 21 / 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --duration-quick: 0ms; --duration-fast: 0ms; --duration-slow: 0ms; }
+}
+:root[data-reduced-motion="true"] { --duration-quick: 0ms; --duration-fast: 0ms; --duration-slow: 0ms; }

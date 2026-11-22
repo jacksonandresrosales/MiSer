@@ -4,7 +4,7 @@ import type { CalendarEvent, FinanceData } from './types'
 import { currency, isoDate, localDate, longDate, monthYear, shortDate } from './lib/format'
 import { eventsByDate } from './financeSelectors'
 import { EmptyState } from './components/common'
-import './CalendarPage.css'
+import { calendarMemory } from './lib/calendarMemory'
 
 type CalendarPageProps = {
   data: FinanceData
@@ -16,8 +16,8 @@ type CalendarPageProps = {
 const weekdayFormatter = new Intl.DateTimeFormat('es-EC', { weekday: 'short' })
 const eventCategory = (event: CalendarEvent) => event.kind === 'payment' ? 'payment' : event.category ?? 'personal'
 const categoryLabels = { personal: 'Personal', work: 'Trabajo', health: 'Salud', payment: 'Pago' }
-// The view and selected day survive switching tabs.
-const memory: { view: 'week' | 'month'; selected: string | null } = { view: 'week', selected: null }
+
+const memory = calendarMemory
 
 export function CalendarPage({ data, onAdd, onEdit }: CalendarPageProps) {
   const today = isoDate(new Date())

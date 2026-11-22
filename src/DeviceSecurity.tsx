@@ -3,7 +3,6 @@ import { Capacitor } from '@capacitor/core'
 import { App as NativeApp } from '@capacitor/app'
 import { LockKeyhole, ShieldCheck } from 'lucide-react'
 import { MiSerSecurity, type LockStatus } from './privateStorage'
-import './DeviceSecurity.css'
 
 const SecurityContext = createContext<{ status: LockStatus | null; configure: (enabled: boolean) => Promise<void> }>({ status: null, configure: async () => {} })
 

@@ -18,7 +18,7 @@ export function useAppPreferences(onError: (message: string) => void) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = darkMode ? 'dark' : 'light'
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', darkMode ? '#0b0c10' : '#f6f6f3')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', darkMode ? '#0d0c0b' : '#f6f4f0')
     try { localStorage.setItem(themeKey, darkMode ? 'dark' : 'light') } catch { /* Theme still applies for this session. */ }
   }, [darkMode])
 

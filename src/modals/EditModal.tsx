@@ -75,7 +75,7 @@ function TransactionForm({ item, copy, onClose, actions, notify, onDuplicate }: 
       </label>
       {amountError.message}
       <fieldset className="chip-field"><legend>Categoría</legend><div className="chips">{categories.map(value => <button key={value} type="button" className="chip-option" aria-pressed={category === value} onClick={() => setCategory(value)}>{value}</button>)}</div></fieldset>
-      <label>Concepto <span className="optional">opcional</span><input value={title} onChange={event => setTitle(event.target.value)} placeholder={`Ej. ${type === 'income' ? 'Sueldo' : 'Supermercado'} (si lo dejas vacío: ${category})`} maxLength={80} /></label>
+      <label>Concepto <span className="optional">opcional</span><input value={title} onChange={event => setTitle(event.target.value)} placeholder={type === 'income' ? 'Ej. Sueldo' : 'Ej. Supermercado'} aria-describedby="tx-title-help" maxLength={80} /></label><p id="tx-title-help" className="form-help">Si lo dejas vacío, se usa la categoría.</p>
       <fieldset className="chip-field"><legend>Fecha</legend><div className="chips">
         <button type="button" className="chip-option" aria-pressed={date === today} onClick={() => setDate(today)}>Hoy</button>
         <button type="button" className="chip-option" aria-pressed={date === yesterday()} onClick={() => setDate(yesterday())}>Ayer</button>

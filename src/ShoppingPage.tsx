@@ -1,6 +1,5 @@
 import { Check, Ellipsis, Link2, ListChecks, Pencil, Plus, ShoppingBag, Trash2 } from 'lucide-react'
 import type { FinanceData, ShoppingItem, ShoppingList } from './types'
-import './ShoppingPage.css'
 import { FinanceImage } from './FinanceImage'
 import { currency } from './lib/format'
 import { webUrl } from './lib/image'

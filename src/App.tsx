@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { App as NativeApp } from '@capacitor/app'
-import { ArrowRight, Bell, CalendarDays, CreditCard, LayoutDashboard, LogOut, Moon, Settings, ShoppingBag, Sparkles, Sun, Target } from 'lucide-react'
+import { Bell, CalendarDays, CreditCard, LayoutDashboard, LogOut, Moon, Plus, RefreshCw, Settings, ShoppingBag, Sparkles, Sun, Target, X } from 'lucide-react'
 import { firebaseConfigured, firebaseMisconfigured } from './firebase'
 import { goalCompleted } from './financeData'
 import { findBudget, monthSpending, previousBudget, upcomingReminders } from './financeSelectors'
@@ -12,6 +12,7 @@ import { useCompactLayout } from './useCompactLayout'
 import { DeviceSecurityGate } from './DeviceSecurity'
 import { AndroidUpdatesProvider } from './AndroidUpdates'
 import { isoDate, monthId, stamp, todayLabel } from './lib/format'
+import { calendarMemory } from './lib/calendarMemory'
 import { BrandMark, ProfileAvatar } from './components/common'
 import { ConfirmDialog, ToastRegion, useConfirm, useToast } from './components/feedback'
 import { useAuthSession } from './hooks/useAuthSession'
@@ -19,9 +20,8 @@ import { useAppPreferences } from './hooks/useAppPreferences'
 import { useFinanceSync } from './hooks/useFinanceSync'
 import { AuthScreen } from './screens/AuthScreen'
 import { VerifyEmailScreen } from './screens/VerifyEmailScreen'
-import './MiSer.css'
-import './mobile-ux.css'
-import './page-transitions.css'
+import './styles/tokens.css'
+import './styles/app.css'
 
 const pageModules = {
   overview: () => import('./pages/OverviewPage'),
@@ -60,6 +60,7 @@ function App() {
   const [history, setHistory] = useState<Page[]>([])
   const [modal, setModal] = useState<Modal>(null)
   const [demoEntryOpen, setDemoEntryOpen] = useState(!firebaseConfigured && !firebaseMisconfigured)
+  const [demoBannerHidden, setDemoBannerHidden] = useState(false)
   const compactLayout = useCompactLayout()
   const scrollPositions = useRef(new Map<Page, number>())
   const modalOpener = useRef<HTMLElement | null>(null)
@@ -124,9 +125,10 @@ function App() {
 
   const openModal = useCallback((next: OpenModal) => {
     if (offlineSince) { notify('Vuelve a conectarte para editar. Puedes consultar y exportar tu copia local.', 'error'); return }
+    if (sync.refreshing) { notify('Sincronizando con la nube. Podrás editar en un momento.', 'error'); return }
     modalOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setModal(next)
-  }, [offlineSince, notify])
+  }, [offlineSince, sync.refreshing, notify])
   const closeModal = useCallback(() => { setModal(null); requestAnimationFrame(() => modalOpener.current?.focus()) }, [])
   const hasBudget = !!findBudget(data?.budgets ?? [], currentMonth)
   const openBudget = useCallback(() => openModal({ kind: 'budget', item: monthBudget, inherited: !hasBudget && monthBudget.totalLimit > 0 }), [openModal, monthBudget, hasBudget])
@@ -182,33 +184,49 @@ function App() {
   const title = pageTitle(page)
   const isDemo = !firebaseConfigured
   const blocked = !!modal || !!confirmRequest
-  return <div className={`app-shell ${page === 'overview' ? 'on-overview' : ''}`}>
+  const addAction = page === 'calendar' ? { label: 'Añadir evento', run: () => openModal({ kind: 'event', date: calendarMemory.selected ?? todayId }) }
+    : page === 'goals' ? { label: 'Nuevo objetivo', run: () => openModal({ kind: 'goal' }) }
+      : page === 'shopping' ? { label: 'Nueva lista', run: () => openModal({ kind: 'list' }) }
+        : { label: 'Añadir movimiento', run: () => openModal({ kind: 'transaction' }) }
+  const sideItems = [...navItems, { id: 'settings' as const, label: 'Ajustes', icon: Settings }]
+  return <div className="app-shell">
     {!compactLayout && <aside className="sidebar" inert={blocked}>
-      <div className="sidebar-brand"><BrandMark /><span>MiSer</span></div>
-      <nav className="main-nav" aria-label="Secciones">{navItems.map(item => { const Icon = item.icon; return <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{item.id === 'shopping' && <span className="nav-count">{data.lists.length}</span>}</button>})}</nav>
-      <div className="sidebar-bottom"><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => navigate('settings')}><Settings size={18} strokeWidth={1.8} /><span>Ajustes</span></button><div className="profile"><ProfileAvatar profile={profile} /><span className="profile-name">{profile.displayName}</span>{isDemo ? <button className="demo-exit" onClick={leaveDemo}><LogOut size={14} /> Salir</button> : <button className="icon-button" onClick={() => void signOut()} aria-label="Cerrar sesión"><LogOut size={16} /></button>}</div></div>
+      <div className="sidebar-brand"><BrandMark size={40} /><span>MiSer</span></div>
+      <button type="button" className="btn btn-primary sidebar-add" onClick={addAction.run}><Plus size={18} aria-hidden="true" /> {addAction.label}</button>
+      <nav className="side-nav" aria-label="Secciones">{sideItems.map(item => { const Icon = item.icon; return <button type="button" key={item.id} className="side-link" aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><Icon size={20} aria-hidden="true" /><span>{item.label}</span>{item.id === 'shopping' && data.lists.length > 0 && <span className="count">{data.lists.length}</span>}</button> })}</nav>
+      <div className="sidebar-profile"><ProfileAvatar profile={profile} /><span>{profile.displayName}</span>{isDemo ? <button type="button" className="btn btn-ghost btn-small" onClick={leaveDemo}>Salir</button> : <button type="button" className="icon-button" onClick={() => void signOut()} aria-label="Cerrar sesión"><LogOut size={18} /></button>}</div>
     </aside>}
 
-    <main className="main-content" inert={blocked}>
-      <header className="topbar"><div className="breadcrumb"><span>{todayLabel(today)}</span><strong>{page === 'overview' ? `Hola, ${profile.displayName}` : title}</strong></div><div className="topbar-actions"><button className="icon-button notification-button" onClick={() => { navigate('calendar'); notify(reminders ? `${reminders} recordatorios próximos en tu agenda.` : 'No tienes recordatorios próximos.') }} aria-label={`Ver agenda: ${reminders} recordatorios próximos`}><Bell size={18} />{reminders > 0 && <i />}</button><button className="icon-button theme-quick-toggle" type="button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'} title={darkMode ? 'Activar modo claro' : 'Activar modo oscuro'}>{darkMode ? <Sun size={17} /> : <Moon size={17} />}</button><button className="top-profile-button" type="button" onClick={() => navigate('settings')} aria-label={`Ajustes y perfil de ${profile.displayName}`}><ProfileAvatar profile={profile} className="top-avatar" /><span className="profile-name top-profile-name">{profile.displayName}</span></button></div></header>
+    <main className="main" inert={blocked}>
+      <header className="topbar">
+        <div className="topbar-title">{compactLayout && <BrandMark size={32} />}<div><span>{todayLabel(today)}</span>{page === 'overview' && <strong>{profile.displayName === 'Mi espacio' ? 'Hola' : `Hola, ${profile.displayName}`}</strong>}</div></div>
+        <div className="topbar-actions">
+          <button type="button" className="icon-button bell" onClick={() => { navigate('calendar'); notify(reminders ? `${reminders} ${reminders === 1 ? 'recordatorio próximo' : 'recordatorios próximos'} en tu agenda.` : 'No tienes recordatorios próximos.') }} aria-label={`Ver agenda: ${reminders} recordatorios próximos`}><Bell size={20} />{reminders > 0 && <i aria-hidden="true" />}</button>
+          <button type="button" className="icon-button" onClick={() => setDarkMode(value => !value)} aria-label={darkMode ? 'Usar tema claro' : 'Usar tema oscuro'} title={darkMode ? 'Usar tema claro' : 'Usar tema oscuro'}>{darkMode ? <Sun size={20} /> : <Moon size={20} />}</button>
+          {compactLayout && <button type="button" className="avatar-button" onClick={() => navigate('settings')} aria-label="Ajustes y perfil" aria-current={page === 'settings' ? 'page' : undefined}><ProfileAvatar profile={profile} /></button>}
+        </div>
+      </header>
       <div className="status-region" aria-live="polite">
-        {isDemo && <div className="demo-banner"><span><Sparkles size={14} /> Modo demostración: los cambios se guardan solo en este navegador.</span><button onClick={leaveDemo}>Ver acceso <ArrowRight size={13} /></button></div>}
-        {offlineSince && <div className="sync-banner offline-banner"><span>Copia local del {stamp(offlineSince)}. Solo consulta; los cambios pendientes se conservan.</span><div><button onClick={sync.retryLoad}>Reconectar</button><button onClick={() => void exportData()}>Exportar copia</button></div></div>}
-        {!isDemo && !offlineSince && sync.syncStatus !== 'saved' && <div className={`sync-banner ${sync.syncStatus === 'error' ? 'sync-banner-error' : ''}`} role={sync.syncStatus === 'error' ? 'alert' : undefined}><span>{sync.syncStatus === 'error' ? sync.syncMessage : sync.syncStatus === 'saving' ? 'Guardando cambios…' : 'Cambios pendientes de guardar…'}</span>{sync.syncStatus === 'error' && <div>{sync.syncConflict ? <><button onClick={() => void sync.resolveConflict('cloud')}>Usar la versión de la nube</button><button onClick={() => void sync.resolveConflict('mine')}>Conservar la mía</button></> : <button onClick={sync.retrySave}>Reintentar</button>}<button onClick={() => void exportData()}>Exportar copia</button></div>}</div>}
+        {isDemo && !demoBannerHidden && <div className="banner banner-demo"><Sparkles size={18} aria-hidden="true" /><span>Modo demostración: los cambios se guardan solo en este navegador.</span><button type="button" className="link-button" onClick={leaveDemo}>Crear cuenta</button><button type="button" className="icon-button" onClick={() => setDemoBannerHidden(true)} aria-label="Ocultar aviso"><X size={18} /></button></div>}
+        {sync.refreshing && <div className="banner banner-info"><RefreshCw size={18} className="spin" aria-hidden="true" /><span>Sincronizando con la nube…</span></div>}
+        {offlineSince && <div className="banner banner-warn"><span>Sin conexión. Ves tu copia del {stamp(offlineSince)}; los cambios pendientes se conservan.</span><button type="button" className="link-button" onClick={sync.retryLoad}>Reconectar</button><button type="button" className="link-button" onClick={() => void exportData()}>Exportar</button></div>}
+        {!isDemo && !offlineSince && !sync.refreshing && sync.syncStatus !== 'saved' && <div className={`banner ${sync.syncStatus === 'error' ? 'banner-error' : 'banner-info'}`} role={sync.syncStatus === 'error' ? 'alert' : undefined}><span>{sync.syncStatus === 'error' ? sync.syncMessage : sync.syncStatus === 'saving' ? 'Guardando cambios…' : 'Cambios pendientes de guardar…'}</span>{sync.syncStatus === 'error' && <>{sync.syncConflict ? <><button type="button" className="link-button" onClick={() => void sync.resolveConflict('cloud')}>Usar la de la nube</button><button type="button" className="link-button" onClick={() => void sync.resolveConflict('mine')}>Conservar la mía</button></> : <button type="button" className="link-button" onClick={sync.retrySave}>Reintentar</button>}<button type="button" className="link-button" onClick={() => void exportData()}>Exportar</button></>}</div>}
       </div>
-      <div key={page} className="t-page-slide app-page-transition" data-page="1">
-        <section className="t-page" data-page-id="1" aria-labelledby="page-title">
-        <Suspense fallback={<div className="page-wrap page-skeleton" role="status" aria-label="Cargando pantalla"><div className="skeleton skeleton-title" /><div className="skeleton skeleton-card" /><div className="skeleton skeleton-card" /></div>}>
+      <div key={page} className="page-enter" aria-label={title}>
+        <Suspense fallback={<div className="page-wrap" role="status" aria-label="Cargando pantalla"><div className="skeleton skeleton-title" /><div className="skeleton skeleton-hero" /><div className="skeleton skeleton-card" /></div>}>
           {page === 'overview' && <OverviewPage data={data} spending={spending} budget={monthBudget} hasBudget={hasBudget} onAdd={() => openModal({ kind: 'transaction' })} onEditTransaction={item => openModal({ kind: 'transaction', item })} onBudget={openBudget} onNavigate={navigate} />}
           {page === 'activity' && <ActivityPage data={data} onAdd={() => openModal({ kind: 'transaction' })} onEdit={item => openModal({ kind: 'transaction', item })} />}
           {page === 'calendar' && <CalendarPage data={data} onAdd={date => openModal({ kind: 'event', date })} onEdit={item => openModal({ kind: 'event', item })} onDelete={actions.deleteEvent} />}
-          {page === 'goals' && <GoalsPage data={data} onAdd={() => openModal({ kind: 'goal' })} onEdit={item => openModal({ kind: 'goal', item })} onToggle={item => actions.saveGoal({ ...item, completed: !goalCompleted(item) })} onDelete={actions.deleteGoal} />}
+          {page === 'goals' && <GoalsPage data={data} onAdd={() => openModal({ kind: 'goal' })} onEdit={item => openModal({ kind: 'goal', item })} onToggle={item => actions.saveGoal({ ...item, completed: !goalCompleted(item) })} />}
           {page === 'shopping' && <ShoppingPage data={data} modify={modify} onAdd={() => openModal({ kind: 'list' })} onEdit={item => openModal({ kind: 'list', item })} onDelete={actions.deleteList} onAddItem={listId => openModal({ kind: 'shoppingItem', listId })} onEditItem={(listId, item) => openModal({ kind: 'shoppingItem', listId, item })} />}
           {page === 'settings' && <SettingsPage key={userId ?? 'demo'} isDemo={isDemo} email={session?.user.email ?? ''} profile={profile} onSaveProfile={sync.saveProfile} preferences={preferences} onPreferencesChange={changePreferences} passwordAccount={session?.user.passwordAccount ?? false} syncStatus={sync.syncStatus} syncMessage={sync.syncMessage} onRetry={offlineSince ? sync.retryLoad : sync.retrySave} onExport={() => void exportData()} darkMode={darkMode} onDarkModeChange={setDarkMode} onBudget={openBudget} onLogout={() => void signOut()} onExitDemo={leaveDemo} onClearLocal={clearLocalData} />}
-        </Suspense></section>
+        </Suspense>
       </div>
     </main>
-    {compactLayout && <nav className="mobile-navigation" aria-label="Navegación principal" inert={blocked}>{navItems.map(item => { const Icon = item.icon; return <button type="button" key={item.id} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><Icon size={21} aria-hidden="true" /><span>{item.label}</span></button> })}</nav>}
+    {compactLayout && <>
+      <button type="button" className="fab" onClick={addAction.run} aria-label={addAction.label} inert={blocked}><Plus size={26} aria-hidden="true" /></button>
+      <nav className="tabbar" aria-label="Navegación principal" inert={blocked}>{navItems.map(item => { const Icon = item.icon; return <button type="button" key={item.id} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><Icon size={22} aria-hidden="true" /><span>{item.label}</span></button> })}</nav>
+    </>}
     {modal && <Suspense fallback={null}><EditModal modal={modal} month={currentMonth} onClose={closeModal} actions={actions} notify={notify} onDuplicate={item => setModal({ kind: 'transaction', item, copy: true })} /></Suspense>}
     {overlays}
   </div>
