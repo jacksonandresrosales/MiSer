@@ -23,10 +23,10 @@ Rama `rediseno-miser`. Dirección visual elegida: **Obsidiana y ámbar** (oscura
 - Todas las pantallas y el formulario se cargan bajo demanda; React y Firebase van en archivos separados. El JS inicial de la app pasa de 571 kB a unos 87 kB (más los dos vendors cacheables).
 - Con cuenta, la copia local cifrada se muestra al instante en solo lectura mientras responde la nube; la escritura en disco ya no bloquea la primera pantalla.
 - Los cambios se guardan en una sola transacción por grupo (hasta 150 registros), con el mismo control de versiones.
-- La sincronización incremental queda activada por defecto en el workflow de Android.
+- La sincronización incremental sigue desactivada por defecto. Se activa con la variable de repositorio `VITE_FIRESTORE_INCREMENTAL_SYNC=true` una vez publicadas las reglas actuales.
 
 ## Pendiente
-- Requiere tener publicadas en Firebase las reglas actuales de `firestore.rules` (exigen `updatedAt`) para que la sincronización incremental sea segura. Se puede desactivar con la variable de repositorio `VITE_FIRESTORE_INCREMENTAL_SYNC=false`.
+- Para activar la sincronización incremental, publica primero en Firebase las reglas actuales de `firestore.rules` (exigen `updatedAt`).
 - No se cambió la lectura del campo heredado `data` del documento raíz: necesita una regla nueva y pruebas con el emulador.
 - Falta probar la APK en un teléfono: arranque, Atrás, teclado decimal, texto ampliado, TalkBack y sincronización con una cuenta de prueba.
 - Las capturas de `docs/screenshots` y del README corresponden al diseño anterior.

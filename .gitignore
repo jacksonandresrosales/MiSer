@@ -25,7 +25,7 @@ dist-ssr
 
 # Contexto local de Superdesign
 .superdesign/
-.impeccable/review/
+.impeccable/
 
 # Compilación y configuración local de Kotlin/Android
 **/.gradle/
