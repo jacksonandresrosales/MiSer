@@ -54,7 +54,8 @@ function App() {
   const { request: confirmRequest, ask, answer } = useConfirm()
   const { preferences, changePreferences, darkMode, setDarkMode } = useAppPreferences(useCallback(message => notify(message, 'error'), [notify]))
   const { session, setSession, authReady, profile, setProfile } = useAuthSession()
-  const sync = useFinanceSync({ session, profile, setProfile, notify })
+  const [demoMode, setDemoMode] = useState(false)
+  const sync = useFinanceSync({ session, profile, setProfile, notify, demo: demoMode && !session })
   const { data, modify, offlineSince } = sync
   const [page, setPageState] = useState<Page>(preferences.startPage)
   const [history, setHistory] = useState<Page[]>([])
@@ -169,20 +170,20 @@ function App() {
   const exportRecovery = useCallback(async () => {
     if (await ask({ title: 'Exportar recuperación', text: 'El archivo contiene tu información financiera sin cifrar. Guárdalo o compártelo solo en un lugar de confianza.', confirmLabel: 'Exportar' })) await sync.exportRecovery()
   }, [sync, ask])
-  const leaveDemo = useCallback(() => { setDemoEntryOpen(true); setPageState('overview'); setHistory([]); setModal(null) }, [])
+  const leaveDemo = useCallback(() => { if (firebaseConfigured) setDemoMode(false); else setDemoEntryOpen(true); setPageState('overview'); setHistory([]); setModal(null) }, [])
 
   const overlays = <><ToastRegion toast={toast} onDismiss={dismiss} /><ConfirmDialog request={confirmRequest} onAnswer={answer} /></>
 
   if (firebaseMisconfigured) return <main className="load-error-screen"><div className="load-error-card"><BrandMark /><h1>Falta configurar Firebase</h1><p>Completa las variables VITE_FIREBASE_* en .env.local para activar el acceso privado.</p></div></main>
   if (firebaseConfigured && !authReady) return <div className="loading-screen" role="status"><BrandMark /><span>Preparando tu espacio…</span></div>
-  if (firebaseConfigured && !session) return <AuthScreen />
+  if (firebaseConfigured && !session && !demoMode) return <AuthScreen onOpenDemo={() => setDemoMode(true)} />
   if (firebaseConfigured && session && !session.user.verified) return <VerifyEmailScreen email={session.user.email ?? ''} onVerified={() => setSession({ user: { ...session.user, verified: true } })} onLogout={() => void signOut()} />
   if (demoEntryOpen) return <AuthScreen preview onOpenDemo={() => setDemoEntryOpen(false)} />
   if (firebaseConfigured && sync.loadError) return <main className="load-error-screen"><div className="load-error-card"><BrandMark /><h1>No pudimos abrir tu espacio</h1><p>{sync.loadError} Tus datos no se han reemplazado.</p><div className="load-error-actions"><button className="btn btn-primary" onClick={sync.retryLoad}>Intentar de nuevo</button><button className="btn btn-soft" onClick={() => void exportRecovery()}>Exportar recuperación local</button><button className="btn btn-soft" onClick={() => void signOut()}>Cerrar sesión</button></div></div>{overlays}</main>
-  if (!data || !sync.loaded || (firebaseConfigured && sync.loadedUserId !== userId)) return <div className="loading-screen" role="status"><BrandMark /><span>Cargando tu espacio…</span></div>
+  if (!data || !sync.loaded || (firebaseConfigured && !demoMode && sync.loadedUserId !== userId)) return <div className="loading-screen" role="status"><BrandMark /><span>Cargando tu espacio…</span></div>
 
   const title = pageTitle(page)
-  const isDemo = !firebaseConfigured
+  const isDemo = !firebaseConfigured || (demoMode && !session)
   const blocked = !!modal || !!confirmRequest
   const addAction = page === 'calendar' ? { label: 'Añadir evento', run: () => openModal({ kind: 'event', date: calendarMemory.selected ?? todayId }) }
     : page === 'goals' ? { label: 'Nuevo objetivo', run: () => openModal({ kind: 'goal' }) }

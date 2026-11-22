@@ -15,10 +15,10 @@ import { demoProfileKey } from './useAuthSession'
 const demoStorageKey = 'miser-demo'
 const previousDemoStorageKey = 'brisa-demo'
 const pendingKey = (uid: string) => `miser-pending-${uid}`
-const readDemoData = (): FinanceData | null => {
-  if (firebaseConfigured || firebaseMisconfigured) return null
+const readStoredDemo = (): FinanceData => {
   try { const stored = localStorage.getItem(demoStorageKey) ?? localStorage.getItem(previousDemoStorageKey); return stored ? JSON.parse(stored) as FinanceData : demoData } catch { return demoData }
 }
+const readDemoData = (): FinanceData | null => firebaseConfigured || firebaseMisconfigured ? null : readStoredDemo()
 const errorCode = (error: unknown) => error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
 
 type Options = {
@@ -26,6 +26,8 @@ type Options = {
   profile: UserProfile
   setProfile: (profile: UserProfile) => void
   notify: (message: string, kind?: 'success' | 'error') => void
+  /** Local demo chosen from the sign-in screen while an account service is available. */
+  demo?: boolean
 }
 
 /**
@@ -33,7 +35,9 @@ type Options = {
  * Invariants kept from the original App: a write never overwrites a record changed elsewhere (version check),
  * pending changes are persisted locally before any network write and only removed once the cloud matches them.
  */
-export function useFinanceSync({ session, profile, setProfile, notify }: Options) {
+export function useFinanceSync({ session, profile, setProfile, notify, demo = false }: Options) {
+  const cloud = firebaseConfigured && !demo
+  const cloudRef = useRef(cloud)
   const userId = session?.user.id
   const verified = !!session?.user.verified
   const [data, setData] = useState<FinanceData | null>(readDemoData)
@@ -57,16 +61,23 @@ export function useFinanceSync({ session, profile, setProfile, notify }: Options
   const profileRef = useRef(profile)
   const offlineRef = useRef(offlineSince)
   const notifyRef = useRef(notify)
-  useEffect(() => { profileRef.current = profile; offlineRef.current = offlineSince; notifyRef.current = notify })
+  useEffect(() => { profileRef.current = profile; offlineRef.current = offlineSince; notifyRef.current = notify; cloudRef.current = cloud })
+
+  // Entering the demo from the sign-in screen loads the local sample data.
+  useEffect(() => {
+    if (!demo) return
+    dataRef.current = readStoredDemo()
+    setData(dataRef.current); setLoaded(true); setSyncStatus('saved')
+  }, [demo])
 
   const pendingPayload = useCallback((uid: string, changes: ReturnType<typeof changedRecords>) => JSON.stringify({ uid, changes: changes.map(([key, record]) => [key, record, expectedVersions.current.get(key) ?? versions.current.get(key) ?? 0]) }), [])
 
   // Signing out clears what is on screen.
   useEffect(() => {
-    if (!firebaseConfigured || userId) return
+    if (!cloud || userId) return
     dataRef.current = null
     setData(null); setLoaded(false); setLoadedUserId(null)
-  }, [userId])
+  }, [userId, cloud])
 
   useEffect(() => {
     const db = firestore
@@ -153,17 +164,17 @@ export function useFinanceSync({ session, profile, setProfile, notify }: Options
 
   // Demo: persist locally after a short pause.
   useEffect(() => {
-    if (firebaseConfigured || !data || !loaded) return
+    if (cloud || !data || !loaded) return
     const timer = window.setTimeout(() => {
       try { localStorage.setItem(demoStorageKey, JSON.stringify(data)) }
       catch { notifyRef.current('No hay espacio suficiente en este navegador para guardar los cambios.', 'error') }
     }, 250)
     return () => window.clearTimeout(timer)
-  }, [data, loaded])
+  }, [data, loaded, cloud])
 
   // Account: write changed records after a short pause, persisting the pending set first.
   useEffect(() => {
-    if (!firebaseConfigured || !data || !loaded || offlineSince || refreshing) return
+    if (!cloud || !data || !loaded || offlineSince || refreshing) return
     const db = firestore
     if (!db || !userId || loadedUserId !== userId) return
     const timer = window.setTimeout(async () => {
@@ -225,7 +236,7 @@ export function useFinanceSync({ session, profile, setProfile, notify }: Options
       }
     }, 450)
     return () => window.clearTimeout(timer)
-  }, [data, loaded, userId, loadedUserId, saveAttempt, offlineSince, refreshing, pendingPayload])
+  }, [data, loaded, userId, loadedUserId, saveAttempt, offlineSince, refreshing, cloud, pendingPayload])
 
   // Reconnect automatically: reload when viewing the offline copy, retry saving after a failed write.
   useEffect(() => {
@@ -245,7 +256,7 @@ export function useFinanceSync({ session, profile, setProfile, notify }: Options
     const next = fn(dataRef.current)
     dataRef.current = next
     setData(next)
-    if (firebaseConfigured) setSyncStatus('pending')
+    if (cloudRef.current) setSyncStatus('pending')
     return true
   }, [])
 
@@ -311,7 +322,7 @@ export function useFinanceSync({ session, profile, setProfile, notify }: Options
   const saveProfile = useCallback(async (draft: UserProfile) => {
     if (offlineRef.current) throw new Error('Vuelve a conectarte antes de editar tu perfil.')
     const next = validateProfile(draft)
-    if (firebaseConfigured) {
+    if (cloudRef.current) {
       if (!firestore || !userId || firebaseAuth?.currentUser?.uid !== userId || loadedUserId !== userId) throw new Error('Tu sesión cambió. Vuelve a iniciar sesión antes de guardar.')
       await saveUserProfile(firestore, userId, next)
       if (firebaseAuth.currentUser?.uid !== userId) throw new Error('El perfil se guardó, pero tu sesión cambió. Vuelve a iniciar sesión.')

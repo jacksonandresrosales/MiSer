@@ -9,9 +9,9 @@ MiSer es una aplicación personal en español para organizar dinero y planes cot
 - Web implementada con React 19, TypeScript 6 y Vite 8.
 - Interfaz MiSer adaptable, con navegación entre Resumen, Finanzas, Calendario, Objetivos, Compras y Ajustes.
 - Firebase Authentication (correo/contraseña o Google) y Cloud Firestore disponibles cuando se configuran las variables de entorno y se publican las reglas de `firestore.rules`. Se exige correo verificado antes de leer o escribir datos. La recuperación de contraseña usa el manejador predeterminado de Firebase.
-- Sin Firebase configurado, la aplicación muestra una vista previa del acceso con la opción de explorar el demo. Los cambios del demo se guardan en `localStorage` (`miser-demo`; también lee la clave anterior `brisa-demo` para conservar datos existentes). El demo permite volver a esa pantalla desde el perfil, el aviso superior o Ajustes.
+- La pantalla de acceso ofrece explorar la demostración, también en la APK con Firebase configurado. Los cambios del demo se guardan en `localStorage` (`miser-demo`; también lee la clave anterior `brisa-demo`). Se sale del demo desde el aviso superior, el menú o Ajustes.
 - El resumen consulta una API pública de frases en español al abrirse y al pedir otra frase. Conserva localmente las frases ya vistas para evitar repeticiones en ese navegador; si la API falla, usa la colección local de respaldo. La API puede incluir autores de distintos ámbitos y no siempre entrega la obra original.
-- El tema claro/oscuro se puede cambiar desde Ajustes o con el control rápido junto a recordatorios. La preferencia se guarda en `localStorage` por navegador. Las transiciones de controles y navegación usan una escala común y respetan la preferencia de movimiento reducido del sistema.
+- El tema oscuro es el predeterminado; el claro se activa desde Ajustes o el control rápido de la barra superior. La preferencia se guarda en `localStorage` por dispositivo. Las animaciones respetan la preferencia de movimiento reducido.
 - Ajustes permite editar el nombre visible y subir, reemplazar o quitar la foto de perfil. La cabecera y el menú lateral usan ese perfil, no el correo. La foto de Google se utiliza como valor inicial cuando no hay un perfil personalizado. Las fotos del dispositivo se recortan al centro y se reducen a JPEG de hasta 256 × 256 y 140 000 caracteres; no requieren Cloud Storage.
 - El perfil se guarda en `finance_data/{uid}.profile` con una escritura combinada que conserva los registros y la copia histórica. Utiliza las reglas de acceso existentes; no hace falta abrir nuevas colecciones. En el demo se guarda por separado en `miser-demo-profile`. El nombre no es un identificador único ni cambia el acceso con Google o correo.
 - La pantalla de inicio preferida y la opción de movimiento reducido se guardan por dispositivo en `miser-preferences`. El movimiento reducido del sistema sigue teniendo prioridad aunque la opción de la app esté apagada. Las cuentas de correo/contraseña pueden solicitar un enlace de cambio desde Ajustes; no se modifica la contraseña en la app.
@@ -54,8 +54,11 @@ Las imágenes cargadas desde el dispositivo ocupan espacio en `localStorage` dur
 
 | Ruta | Función |
 | --- | --- |
-| `src/App.tsx` | Navegación, pantallas, formularios, estado y persistencia. |
-| `src/MiSer.css` | Diseño adaptable y sistema visual de MiSer. |
+| `src/App.tsx` | Estructura de la app: navegación, menú lateral, barra inferior, botón «+», avisos y diálogos. |
+| `src/pages/`, `src/screens/`, `src/modals/` | Pantallas (Resumen, Movimientos, Objetivos, Ajustes), acceso y formularios por tipo. |
+| `src/hooks/useFinanceSync.ts` | Carga, copia local, guardado en lote, conflictos y demo. |
+| `src/financeSelectors.ts` | Cálculos derivados (gastos del mes, búsqueda, agrupación por día). |
+| `src/styles/tokens.css` y `src/styles/app.css` | Sistema visual «Obsidiana y ámbar»: tokens de color, tipografía (Sora y Manrope), espaciado y componentes. |
 | `src/types.ts` | Contrato de datos de TypeScript. |
 | `src/quotes.ts` | Frases filosóficas, atribución y enlaces a los textos fuente. |
 | `api/quote.js` | Proxy de la API de frases para despliegues en Vercel, donde el navegador no puede consultar directamente la fuente por CORS. |
